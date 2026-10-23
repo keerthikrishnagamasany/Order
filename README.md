@@ -1,0 +1,256 @@
+<div align="center">
+
+![ORDER](assets/banner.svg)
+
+# ORDER
+
+**An agent-aware gateway framework for the age of AI bots.** Sort verified agents from hostile ones, trap the suspicious in a decoy, and learn from every attack — with evidence, not guesses.
+
+Created by **[Keerthi Krishna Gamasany](https://github.com/keerthikrishnagamasany)**
+
+[![License: MIT](https://img.shields.io/badge/license-MIT-f4c430?style=flat-square)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%E2%89%A522-339933?style=flat-square&logo=nodedotjs&logoColor=white)](#requirements)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?style=flat-square&logo=typescript&logoColor=white)](tsconfig.base.json)
+[![Dependencies](https://img.shields.io/badge/runtime%20deps-0-2ea44f?style=flat-square)](#packages)
+
+[Quickstart](#quickstart) · [Why ORDER](#why-order) · [Use it](#use-it-in-your-app) · [Signed agents](#signed-ai-agents-web-bot-auth) · [Learned rules](#learned-rules) · [Production](#running-it-in-production) · [Extending](EXTENDING.md) · [Architecture](#architecture)
+
+</div>
+
+---
+
+> Traditional WAFs answer one question: *block or allow?* That binary breaks when a large and
+> growing share of your traffic is **AI agents** — some you want (a partner's assistant calling
+> your API), some you don't (a scraper wearing a browser's clothes). ORDER adds the missing
+> axis: **who is this, and what are they trying to do?** — and it keeps the evidence so you can
+> prove the answer.
+
+ORDER is a **framework**: a complete, working baseline you can run today, built from parts you can replace. Rules, key discovery, state, decoy content, identity, capture and metrics all sit behind small interfaces. Start with the defaults; swap any part for your own. See **[EXTENDING.md](EXTENDING.md)**.
+
+## Why ORDER
+
+- **Four lanes, not two.** Every request is sorted into `trusted`, `normal`, `decoy` or `blocked`. A verified partner agent isn't treated like an anonymous scraper, and a scraper isn't treated like a user.
+- **Cryptographically verified agents.** Agents that sign requests with [Web Bot Auth](#signed-ai-agents-web-bot-auth), the IETF standard, are admitted to `trusted`. Forged or replayed signatures are trapped.
+- **A decoy that pays off.** Suspicious-but-unproven clients get convincing fake data seeded with **canary tokens**. If one is ever replayed, that is *provable* compromise — the one thing ORDER labels `CERTAIN`.
+- **It learns, carefully.** From a captured session ORDER proposes [new detection rules](#learned-rules), each with its evidence, and rejects any rule that would also have hit your legitimate traffic. A human approves before anything goes live.
+- **Fast and dependency-free.** About **2.8 µs per decision** ([benchmark](#performance)) and **zero runtime dependencies** in every package.
+
+## Quickstart
+
+```bash
+git clone https://github.com/keerthikrishnagamasany/order.git
+cd order
+corepack enable && pnpm install
+pnpm demo
+```
+
+```
+client          path                          expect    actual    ok
+------------------------------------------------------------------------
+legit-user      /api/v1/products              normal    normal    PASS
+partner-swift   /api/v1/orders                trusted   trusted   PASS
+signed-agent    /api/v1/products              trusted   trusted   PASS   (Web Bot Auth)
+replayed-sig    /api/v1/products              decoy     decoy     PASS   (signature for another host)
+scanner-A       /.env                         blocked   blocked   PASS
+probe-B         /api/v1/products              blocked   blocked   PASS   (encoded SQLi)
+probe-C         /api/v1/assistant             decoy     decoy     PASS   (prompt injection)
+...
+11/11 landed in the expected lane
+```
+
+## Use it in your app
+
+Every option below runs the same decision core, so they behave identically.
+
+**Express**
+
+```ts
+import express from "express";
+import { orderExpress } from "@order/gateway";
+
+const app = express();
+app.use(express.json());          // mount ORDER after your body parser so it can inspect bodies
+app.use(orderExpress());          // attacks are answered here and never reach your routes
+app.get("/api/items", (req, res) => res.json({ lane: res.locals.order.decision.lane }));
+```
+
+**Fastify**
+
+```ts
+import Fastify from "fastify";
+import { orderFastify } from "@order/gateway";
+
+const app = Fastify();
+app.addHook("preHandler", orderFastify());
+```
+
+**In front of any app (reverse proxy)** — Rails, Django, Go, anything that speaks HTTP:
+
+```ts
+import { createGateway } from "@order/gateway";
+
+const { server } = createGateway({ upstream: { url: "http://127.0.0.1:3000" } });
+server.listen(8080);
+```
+
+Only `trusted` and `normal` traffic is forwarded. Blocked and decoyed requests are answered by ORDER and never reach your app. Request bodies are forwarded byte-for-byte; responses are streamed back. Your app receives `x-order-lane`, `x-order-client` and, for signed agents, `x-order-verified-agent` — and ORDER strips any copies a client tries to send itself.
+
+**Your own server** — call the core directly:
+
+```ts
+import { createOrder } from "@order/gateway";
+
+const order = createOrder();
+const { decision, respond } = await order.check({ method, url, headers, body, remoteAddress });
+if (respond) { /* ORDER answered: send respond.status / respond.body */ }
+```
+
+## Signed AI agents (Web Bot Auth)
+
+`@order/web-bot-auth` implements the verifier side of
+[draft-ietf-webbotauth-httpsig-protocol](https://datatracker.ietf.org/doc/html/draft-ietf-webbotauth-httpsig-protocol):
+RFC 9421 HTTP Message Signatures, Ed25519 keys, RFC 8037 thumbprints as `keyid`, and the `web-bot-auth`
+tag. It's tested against the **draft's own Ed25519 test vector**, so ORDER agrees with the standard,
+not only with its own signer.
+
+```ts
+import { orderExpress, HttpsDirectoryResolver } from "@order/gateway";
+
+app.use(orderExpress({ botAuth: { resolver: new HttpsDirectoryResolver() } }));
+```
+
+| Result | Meaning | ORDER does |
+|---|---|---|
+| `verified` | signature valid for the agent's published key | `trusted` lane (still blocked if it carries an attack payload) |
+| `unverified` | well-formed, but the key couldn't be found | nothing — treated as ordinary traffic |
+| `invalid` | forged, expired, replayed to another host, wrong tag | a `SUSPECT` signal, usually the `decoy` lane |
+
+`HttpsDirectoryResolver` fetches `https://<agent-origin>/.well-known/http-message-signatures-directory` under the draft's rules: https origins only, `200` only, redirects never followed, the required media type, `kid` must equal the key's thumbprint, and capped size, key count and fetch time. Directories are cached per `max-age` (capped at 24h), failures for at most five minutes.
+
+Because `Signature-Agent` is attacker-controlled, the resolver **refuses private, loopback, link-local and cloud-metadata destinations** — checked at connect time (so DNS rebinding can't slip past) and for bare IP addresses in every notation, including IPv4-mapped IPv6 like `::ffff:7f00:1`.
+
+`StaticKeyResolver` takes keys you add by hand, for tests or pinned partners. `signWebBotAuth` lets agent builders sign their own requests. Not implemented: verifying a directory's own response signature, which the draft recommends for servers; ORDER only takes keys straight from the agent's origin over TLS.
+
+## Learned rules
+
+Most defences stop at "blocked". `@order/reconstruct` reads a captured session and **proposes new detection rules** from what hostile clients actually did:
+
+```ts
+import { fromHar, synthesizeRules, compileRules } from "@order/reconstruct";
+import { referenceRules } from "@order/rules-reference";
+import { combine } from "@order/core";
+
+const proposals = synthesizeRules(fromHar(har), { existing: referenceRules });
+// a human reviews and sets approved: true on the ones to keep
+const rules = combine(referenceRules, compileRules(proposals));
+```
+
+Each proposal carries the capture entries behind it, a confidence label, and a false-positive check. From the demo capture:
+
+```
+proposed user_agent:curl          LIKELY   redundant - seen only from hostile clients, but the current pack already catches it
+proposed path:/.env               GUESSING redundant - seen only from hostile clients, but the current pack already catches it
+...
+rejected path:/api/v1/products    GUESSING - would also match 2 normal/trusted request(s) in this capture
+rejected user_agent:agent         GUESSING - would also match 1 trusted request(s) in this capture
+```
+
+The last line is the point. The forged signature used the same user-agent as the real signed agent. A naive "block this UA" rule would have locked out a legitimate partner; ORDER rejects it before a human sees it as a candidate. Learned rules top out at `LIKELY`, are never auto-approved, and a rejected proposal can't be compiled in even if someone flips `approved`.
+
+## Running it in production
+
+**Identify clients correctly.** Scores are only as good as the client id. By default ORDER uses the connecting address. Behind a load balancer or CDN, tell it which proxies to trust; it then takes the right-most untrusted hop from `X-Forwarded-For`, so a forged entry can't win:
+
+```ts
+createGateway({ clientIdentity: { trustedProxies: ["10.0.0.1"] } });
+```
+
+**Share state across instances.** By default scores, rate windows and canaries live in memory, bounded and expiring. To run several instances, or keep canaries across restarts, use the Redis store with the client you already have:
+
+```ts
+import { RedisStateStore } from "@order/gateway";
+
+const state = new RedisStateStore((args) => redis.sendCommand(args));          // node-redis
+// const state = new RedisStateStore((args) => ioredis.call(args[0], ...args.slice(1)));
+createGateway({ state });
+```
+
+The Redis store is tested against a protocol-level fake, not yet against a live Redis server.
+
+**Watch it.** Prometheus metrics, served only to loopback clients by default:
+
+```ts
+import { createGateway, Metrics } from "@order/gateway";
+
+createGateway({ metrics: { registry: new Metrics() } });   // GET /__order/metrics
+```
+
+`order_decisions_total{lane}`, `order_signals_total{signal}`, `order_bot_auth_total{result}`, `order_upstream_errors_total`, and an `order_decide_seconds` histogram.
+
+**Bound everything.** Request bodies over `maxBodyBytes` (default 1 MiB) get `413` rather than being truncated. Capture keeps at most `capture.maxEntries` (default 10,000) or can be turned off with `capture: false`.
+
+**Tune on your own traffic.** The reference rules are conservative starting points. Measure your false-positive rate on real traffic before trusting any automatic block.
+
+## Performance
+
+`pnpm bench` on a 2-vCPU cloud VM (Node 22):
+
+| | Result |
+|---|---|
+| `Engine.decide()`, reference rules, 30% attack traffic | ~205,000 decisions/sec · p50 2.8 µs · p99 ~10 µs |
+| Gateway vs a bare Node server, same load generator | no measurable difference — both limited by the load generator |
+
+The per-decision cost is the meaningful number. HTTP throughput on a shared 2-vCPU box measures the load generator, not ORDER. Run `pnpm bench` on your own hardware.
+
+## Architecture
+
+![ORDER architecture](assets/architecture.svg)
+
+Two speeds, by design: the live path decides in microseconds on every request; offline analysis runs on captures later and never slows a request.
+
+### Packages
+
+| Package | What it is | Runtime deps |
+|---|---|---|
+| [`@order/core`](packages/core) | lanes, decision pipeline, normalisation, canaries, pluggable state, `RulePack` | 0 |
+| [`@order/rules-reference`](packages/rules-reference) | open, conservative detector pack | 0 (besides core) |
+| [`@order/web-bot-auth`](packages/web-bot-auth) | Web Bot Auth verifier, signer, SSRF-safe key discovery | 0 |
+| [`@order/reconstruct`](packages/reconstruct) | per-client verdicts, learned-rule synthesis | 0 (besides core) |
+| [`@order/gateway`](apps/gateway) | Express/Fastify adapters, reverse proxy, metrics | 0 (besides ORDER) |
+
+Full detail in [ARCHITECTURE.md](ARCHITECTURE.md). To build on ORDER, start with [EXTENDING.md](EXTENDING.md).
+
+## Design principles
+
+- **Intent is inferred, never assumed.** Every verdict carries `CERTAIN` / `LIKELY` / `GUESSING`. Only a canary replay is `CERTAIN`.
+- **Normalise before matching.** Detectors see URL-decoded input, recursively, to defeat double-encoding.
+- **Clients don't choose their own identity.** No client-supplied header sets the id ORDER scores by.
+- **Observe, deny, log — never retaliate.** ORDER traps and records. It never sends anything back at a client.
+- **Rules are proposals.** Learned rules need a human's approval before they go live.
+
+## Requirements
+
+- Node.js ≥ 22
+- `pnpm` (recommended) or `npm`
+
+## Status
+
+`v0.4` — Express and Fastify adapters, a reverse proxy, pluggable state with Redis, metrics, safe client identification, npm-ready packages. 105 tests; library, tests and examples are all strictly type-checked. Interfaces may still change before `1.0`. See the [changelog](CHANGELOG.md).
+
+## Roadmap
+
+- [x] Web Bot Auth verification with HTTPS key discovery and SSRF protection
+- [x] Learned-rule synthesis with false-positive checks
+- [x] Express and Fastify adapters, reverse proxy, shared state, metrics
+- [ ] Verify signed directory responses (draft Appendix B)
+- [ ] Rule-pack test harness: score a private pack against a labelled traffic corpus
+- [ ] Edge runtimes (Cloudflare Workers, Deno) — the core is portable; key discovery needs a `fetch` transport
+- [ ] A live console on top of the metrics and decision stream
+
+## Contributing
+
+Issues and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) and [EXTENDING.md](EXTENDING.md). Please read [SECURITY.md](SECURITY.md) before reporting a vulnerability.
+
+## License
+
+[MIT](LICENSE) © 2026 Keerthi Krishna Gamasany

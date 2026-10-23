@@ -1,0 +1,10 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/core" },
+    { "path": "./packages/rules-reference" },
+    { "path": "./packages/web-bot-auth" },
+    { "path": "./packages/reconstruct" },
+    { "path": "./apps/gateway" }
+  ]
+}

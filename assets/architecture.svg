@@ -1,0 +1,115 @@
+<svg width="1100" height="660" viewBox="0 0 1100 660" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ORDER architecture: run modes, the live decision path with Web Bot Auth and shared state, and the offline learned-rules loop">
+  <style>
+    .box{fill:#151b24;stroke:#2a3442;stroke-width:1.5}
+    .hl{fill:#151b24;stroke:#4da3ff;stroke-width:1.5}
+    .lbl{font-family:'Space Grotesk','Segoe UI',Helvetica,Arial,sans-serif;fill:#e6edf3;font-weight:600;font-size:16px}
+    .sub{font-family:ui-monospace,Menlo,Consolas,monospace;fill:#8b98a8;font-size:12px}
+    .sec{font-family:'Space Grotesk','Segoe UI',Helvetica,Arial,sans-serif;font-weight:600;font-size:13px;letter-spacing:1px}
+    .lane{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;font-weight:600}
+    .flow{stroke:#4a5768;stroke-width:1.8;fill:none}
+    .loop{stroke:#d29922;stroke-width:1.8;fill:none;stroke-dasharray:6 5}
+  </style>
+  <defs>
+    <marker id="a" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="#4a5768"/></marker>
+    <marker id="y" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="#d29922"/></marker>
+  </defs>
+  <rect width="1100" height="660" fill="#0d1117"/>
+
+  <!-- RUN MODES -->
+  <text x="40" y="38" class="sec" fill="#8b98a8">RUN IT AS</text>
+  <rect class="box" x="40" y="52" width="235" height="44" rx="8"/>
+  <text x="58" y="79" class="lbl" font-size="14">Express middleware</text>
+  <rect class="box" x="290" y="52" width="235" height="44" rx="8"/>
+  <text x="308" y="79" class="lbl" font-size="14">Fastify hook</text>
+  <rect class="box" x="540" y="52" width="235" height="44" rx="8"/>
+  <text x="558" y="79" class="lbl" font-size="14">Reverse proxy (any app)</text>
+  <rect class="box" x="790" y="52" width="270" height="44" rx="8"/>
+  <text x="808" y="79" class="lbl" font-size="14">createOrder().check()</text>
+  <path class="flow" d="M550,104 L550,128" marker-end="url(#a)"/>
+  <text x="565" y="122" class="sub">all share one decision core</text>
+
+  <!-- LIVE PATH -->
+  <text x="40" y="160" class="sec" fill="#f85149">● LIVE — MICROSECONDS, EVERY REQUEST</text>
+
+  <rect class="box" x="40" y="176" width="150" height="74" rx="10"/>
+  <text x="58" y="206" class="lbl">Identify</text>
+  <text x="58" y="228" class="sub">socket / trusted</text>
+  <text x="58" y="243" class="sub">proxy only</text>
+
+  <rect class="hl" x="212" y="176" width="190" height="74" rx="10"/>
+  <text x="230" y="206" class="lbl">Verify agent</text>
+  <text x="230" y="228" class="sub">Web Bot Auth</text>
+  <text x="230" y="243" class="sub">RFC 9421 · Ed25519</text>
+
+  <rect class="box" x="424" y="176" width="150" height="74" rx="10"/>
+  <text x="442" y="206" class="lbl">Normalise</text>
+  <text x="442" y="228" class="sub">deep URL-decode</text>
+
+  <rect class="box" x="596" y="176" width="170" height="74" rx="10"/>
+  <text x="614" y="206" class="lbl">Rule packs</text>
+  <text x="614" y="228" class="sub">reference + yours</text>
+  <text x="614" y="243" class="sub">+ learned</text>
+
+  <rect class="box" x="788" y="176" width="272" height="74" rx="10"/>
+  <text x="806" y="206" class="lbl">Decide</text>
+  <text x="806" y="228" class="sub">canary · identity</text>
+  <text x="806" y="243" class="sub">signals · score</text>
+
+  <path class="flow" d="M190,213 L210,213" marker-end="url(#a)"/>
+  <path class="flow" d="M402,213 L422,213" marker-end="url(#a)"/>
+  <path class="flow" d="M574,213 L594,213" marker-end="url(#a)"/>
+  <path class="flow" d="M766,213 L786,213" marker-end="url(#a)"/>
+
+  <!-- key directory + state -->
+  <rect class="box" x="212" y="282" width="190" height="64" rx="10"/>
+  <text x="230" y="309" class="lbl" font-size="14">Key directory</text>
+  <text x="230" y="330" class="sub">HTTPS · SSRF-guarded</text>
+  <path class="flow" d="M307,280 L307,252" marker-end="url(#a)"/>
+
+  <rect class="box" x="788" y="282" width="205" height="64" rx="10"/>
+  <text x="806" y="309" class="lbl" font-size="14">State store</text>
+  <text x="806" y="330" class="sub">memory or Redis</text>
+  <path class="flow" d="M890,280 L890,252" marker-end="url(#a)"/>
+
+  <!-- lanes -->
+  <rect class="box" x="788" y="372" width="272" height="132" rx="10"/>
+  <text x="806" y="400" class="lbl" font-size="15">Four lanes</text>
+  <text x="806" y="426" class="lane" fill="#3fb950">trusted → your app</text>
+  <text x="806" y="448" class="lane" fill="#6aa6d6">normal  → your app</text>
+  <text x="806" y="470" class="lane" fill="#d29922">decoy   → fake data + canaries</text>
+  <text x="806" y="492" class="lane" fill="#f85149">blocked → 403</text>
+  <path class="flow" d="M1030,252 L1030,370" marker-end="url(#a)"/>
+
+  <!-- OFFLINE PATH -->
+  <text x="40" y="372" class="sec" fill="#4da3ff">● OFFLINE — LATER, NEVER IN THE REQUEST PATH</text>
+
+  <rect class="box" x="40" y="420" width="190" height="84" rx="10"/>
+  <text x="58" y="450" class="lbl">Capture</text>
+  <text x="58" y="472" class="sub">requests + verdicts</text>
+  <text x="58" y="487" class="sub">bounded</text>
+
+  <rect class="box" x="254" y="420" width="220" height="84" rx="10"/>
+  <text x="272" y="450" class="lbl">Reconstruct</text>
+  <text x="272" y="472" class="sub">per-client verdicts</text>
+  <text x="272" y="487" class="sub">with evidence</text>
+
+  <rect class="hl" x="498" y="420" width="260" height="84" rx="10"/>
+  <text x="516" y="450" class="lbl">Learned rules</text>
+  <text x="516" y="472" class="sub">checked against your real</text>
+  <text x="516" y="487" class="sub">traffic · human approves</text>
+
+  <path class="flow" d="M230,462 L252,462" marker-end="url(#a)"/>
+  <path class="flow" d="M474,462 L496,462" marker-end="url(#a)"/>
+  <path class="flow" d="M788,388 L135,388 L135,418" marker-end="url(#a)"/>
+  <text x="300" y="408" class="sub">every decision is recorded</text>
+
+  <!-- the learning loop back into rule packs -->
+  <path class="loop" d="M681,418 L681,252" marker-end="url(#y)"/>
+  <text x="671" y="320" class="sub" fill="#d29922" text-anchor="end">approved rules</text>
+  <text x="671" y="336" class="sub" fill="#d29922" text-anchor="end">feed back in</text>
+
+  <!-- footer -->
+  <line x1="40" y1="572" x2="1060" y2="572" stroke="#21262d"/>
+  <text x="40" y="600" class="sub">Every box is a replaceable part: rule packs, key resolver, transport, state store, decoy content,</text>
+  <text x="40" y="620" class="sub">client identity, capture and metrics. Private rules load through the same interface and never ship here.</text>
+</svg>

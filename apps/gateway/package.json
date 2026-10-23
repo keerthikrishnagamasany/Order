@@ -1,0 +1,63 @@
+{
+  "name": "@order/gateway",
+  "version": "0.4.0",
+  "description": "ORDER gateway: Express and Fastify adapters, a standalone reverse proxy, and Prometheus metrics.",
+  "author": "Keerthi Krishna Gamasany",
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "waf",
+    "reverse-proxy",
+    "express",
+    "fastify",
+    "bot-detection",
+    "ai-agents"
+  ],
+  "homepage": "https://github.com/keerthikrishnagamasany/order#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/keerthikrishnagamasany/order.git",
+    "directory": "apps/gateway"
+  },
+  "bugs": {
+    "url": "https://github.com/keerthikrishnagamasany/order/issues"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    },
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b",
+    "start": "node --import tsx examples/demo.ts"
+  },
+  "dependencies": {
+    "@order/core": "workspace:*",
+    "@order/rules-reference": "workspace:*",
+    "@order/web-bot-auth": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/express": "4.17.21",
+    "express": "4.21.1",
+    "fastify": "4.28.1"
+  }
+}

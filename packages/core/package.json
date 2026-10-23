@@ -1,0 +1,51 @@
+{
+  "name": "@order/core",
+  "version": "0.4.0",
+  "description": "ORDER core: lanes, the decision pipeline, canary tokens, pluggable state, and the rule-pack interface.",
+  "author": "Keerthi Krishna Gamasany",
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "bot-detection",
+    "waf",
+    "security",
+    "ai-agents",
+    "honeypot"
+  ],
+  "homepage": "https://github.com/keerthikrishnagamasany/order#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/keerthikrishnagamasany/order.git",
+    "directory": "packages/core"
+  },
+  "bugs": {
+    "url": "https://github.com/keerthikrishnagamasany/order/issues"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    },
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b"
+  }
+}

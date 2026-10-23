@@ -1,0 +1,28 @@
+# deps
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+*.tsbuildinfo
+
+# the private, tuned ruleset is NOT part of the public framework.
+# Keep real detection internals out of this repo — load them as a separate
+# private package (@order/rules-private) at deploy time. See ARCHITECTURE.md.
+packages/rules-private/
+**/*.rules.private.*
+
+# runtime capture / logs
+capture/
+*.har
+*.log
+
+# env & secrets
+.env
+.env.*
+!.env.example
+
+# editor / OS
+.DS_Store
+.idea/
+.vscode/
