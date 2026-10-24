@@ -31,7 +31,7 @@ const PAYLOAD: Matcher[] = [
     name: "sql_injection",
     severity: "HARD",
     where: "query",
-    rx: /(?:'|")\s*(?:or|and)\s+\d+\s*=\s*\d+|union(?:\s|\/\*.*?\*\/)+select|;\s*drop\s+table\s/i,
+    rx: /(?:'|")\s*(?:or|and)\s+\d+\s*=\s*\d+|union(?:\s|\/\*[^*]*\*\/)+select|;\s*drop\s+table\s/i,
   },
   {
     name: "path_traversal",

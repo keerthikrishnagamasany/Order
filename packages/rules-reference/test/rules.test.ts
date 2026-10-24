@@ -44,3 +44,25 @@ test("clean request yields no signals", () => {
   const s = referenceRules.inspect(facts({ path: "/api/v1/products", query: "category=books", userAgent: "Mozilla/5.0" }));
   assert.equal(s.length, 0);
 });
+
+test("no catastrophic backtracking on hostile input (ReDoS)", () => {
+  const hostile = [
+    "union" + "/**/".repeat(20000) + "x",
+    "union" + " /*".repeat(20000),
+    "union" + "/*".repeat(20000) + "*/x",
+    "union/*" + "*//*".repeat(20000), // the exact shape CodeQL reported
+    "'" + " ".repeat(20000) + "or",
+  ];
+  const t = performance.now();
+  for (const q of hostile) {
+    referenceRules.inspect(facts({ query: q }));
+    referenceRules.inspect(facts({ body: q }));
+  }
+  assert.ok(performance.now() - t < 500, `took ${Math.round(performance.now() - t)} ms`);
+});
+
+test("SQL comment obfuscation is still detected", () => {
+  for (const q of ["id=1 UNION/**/SELECT pw", "id=1 union /*a*/ /*b*/ select pw"]) {
+    assert.ok(referenceRules.inspect(facts({ query: q })).some((s) => s.name === "sql_injection"), q);
+  }
+});

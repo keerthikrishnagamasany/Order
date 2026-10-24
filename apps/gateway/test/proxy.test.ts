@@ -248,3 +248,32 @@ test("an approved learned rule is enforced by a running gateway; an unapproved o
     }
   }
 });
+
+test("a client can't redirect the proxy to another host (absolute-form or // request-target)", async () => {
+  const { connect } = await import("node:net");
+  const app = await upstreamApp();
+  const other = await upstreamApp(); // stands in for an internal host the attacker wants to reach
+  const gw = await gateway(app.url);
+  const otherHostPort = new URL(other.url).host;
+  const raw = (target: string) =>
+    new Promise<void>((resolve) => {
+      const port = Number(new URL(gw.base).port);
+      const s = connect(port, "127.0.0.1", () => {
+        s.write(`GET ${target} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nUser-Agent: Mozilla/5.0\r\nConnection: close\r\n\r\n`);
+      });
+      s.on("data", () => {});
+      s.on("close", () => resolve());
+      s.on("error", () => resolve());
+    });
+  try {
+    await raw(`http://${otherHostPort}/api/v1/secret`);
+    await raw(`//${otherHostPort}/api/v1/secret`);
+    assert.equal(other.seen.length, 0, "the other host must never be contacted");
+    assert.equal(app.seen.length, 2);
+    for (const s of app.seen) assert.equal(s.url, "/api/v1/secret");
+  } finally {
+    await gw.close();
+    await app.close();
+    await other.close();
+  }
+});

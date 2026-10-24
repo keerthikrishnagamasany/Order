@@ -78,9 +78,14 @@ export function forwardToUpstream(
 ): Promise<ForwardResult> {
   return new Promise((resolve) => {
     const base = new URL(upstream.url);
-    const target = new URL(req.url ?? "/", base);
-    // Keep the upstream base path as a prefix if one was configured.
-    if (base.pathname !== "/") target.pathname = base.pathname.replace(/\/$/, "") + target.pathname;
+    // Only the path and query of the client's request-target are used. The upstream's
+    // scheme, host and port always come from configuration: a client sending an
+    // absolute-form target ("GET http://other-host/") or a protocol-relative one
+    // ("GET //other-host/") must never redirect the proxy to another host.
+    const incoming = new URL(req.url ?? "/", "http://request-target.invalid");
+    const target = new URL(base.origin);
+    target.pathname = base.pathname.replace(/\/$/, "") + incoming.pathname;
+    target.search = incoming.search;
 
     const headers = stripHopByHop(req.headers);
     for (const k of Object.keys(headers)) {

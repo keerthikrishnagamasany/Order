@@ -4,6 +4,17 @@ ORDER is created and maintained by Keerthi Krishna Gamasany.
 
 ## Unreleased
 
+- **Security: proxy request forgery (SSRF), found by CodeQL.** In reverse-proxy mode, a client
+  could send an absolute-form (`GET http://other-host/…`) or protocol-relative (`GET //other-host/…`)
+  request-target and the gateway would forward it to that host instead of the configured
+  upstream. The upstream URL is now built only from configuration plus the request's path and
+  query. Middleware and adapter use were not affected. A regression test sends both forms over a
+  raw socket and checks that no other host is contacted. Update if you run ORDER as a proxy.
+- **Security: slow regular expression (ReDoS) in the reference SQL-injection rule.** The
+  comment-skipping part of the `union … select` pattern could backtrack for minutes on crafted
+  input. It now runs in linear time and still detects comment-obfuscated injections; a test
+  bounds its run time on hostile input.
+
 - **Authorized security testing.** `authorizedTesters` declares time-boxed, path-scoped test
   engagements for already-trusted identities or verified agents. In-scope attack payloads
   are allowed and labelled instead of being treated as a leaked key. Expired or out-of-scope
