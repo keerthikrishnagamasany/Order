@@ -38,7 +38,7 @@ test("Express: attacks are answered by ORDER and never reach the route", async (
   const app = express();
   app.use(express.json());
   app.use(orderExpress());
-  app.all("*", (_req, res) => {
+  app.all("/{*splat}", (_req, res) => {
     reached++;
     res.json({ app: true });
   });

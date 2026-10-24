@@ -31,6 +31,11 @@ ORDER is created and maintained by Keerthi Krishna Gamasany.
   always `GUESSING` and compile to `SUSPECT`, so they divert to the decoy and never block.
   On the held-out set: 8/12 caught becomes 9/12, with no new false positives.
 
+- **Dependencies.** Adapter tests now run against Express 5.3.0 and Fastify 5.12.7, and tsx is
+  4.23.15. This clears every Dependabot alert (fastify, qs, body-parser, path-to-regexp,
+  find-my-way, esbuild). All of them were in test-only dependencies: ORDER's published
+  packages import neither framework, so installs of ORDER were never affected.
+
 ## 0.4.0
 
 Make ORDER deployable and installable.
