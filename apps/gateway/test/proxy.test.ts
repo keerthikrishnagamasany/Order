@@ -220,3 +220,31 @@ test("an authorized test reaches the app, labelled, and can't be forged by a cli
     await app.close();
   }
 });
+
+test("an approved learned rule is enforced by a running gateway; an unapproved one is not", async () => {
+  const { compileRules, synthesizeRules } = await import("@order/reconstruct");
+  const { combine } = await import("@order/core");
+  const { referenceRules } = await import("@order/rules-reference");
+  const capture = ["scan-1", "scan-2"].map((client, ordinal) => ({
+    ordinal, ts: "", client, method: "GET", path: "/wp-json/wp/v2/users", userAgent: "Mozilla/5.0",
+    status: 200, lane: "decoy", confidence: "GUESSING", reasons: ["score=3"],
+  }));
+  const proposals = synthesizeRules(capture, { existing: referenceRules });
+
+  for (const approve of [true, false]) {
+    const learned = compileRules(proposals.map((p) => ({ ...p, approved: approve })));
+    const app = await upstreamApp();
+    const gw = await gateway(app.url, { rules: combine(referenceRules, learned) });
+    try {
+      await fetch(`${gw.base}/wp-json/wp/v2/users`, { headers: { "user-agent": "Mozilla/5.0" } });
+      await fetch(`${gw.base}/api/v1/products`, { headers: { "user-agent": "Mozilla/5.0" } });
+      const reachedProbe = app.seen.some((s) => s.url === "/wp-json/wp/v2/users");
+      assert.equal(reachedProbe, !approve, approve ? "approved rule must divert the probe" : "unapproved rule must do nothing");
+      assert.ok(app.seen.some((s) => s.url === "/api/v1/products"), "unrelated legitimate traffic still reaches the app");
+      if (approve) assert.ok(gw.log[0]?.reasons.some((r) => r.startsWith("learned_path")));
+    } finally {
+      await gw.close();
+      await app.close();
+    }
+  }
+});

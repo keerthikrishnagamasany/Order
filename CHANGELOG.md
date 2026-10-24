@@ -18,6 +18,13 @@ ORDER is created and maintained by Keerthi Krishna Gamasany.
   most likely doing, and the rules the capture supports, including a new rule learned from
   a path no built-in rule knows and the rules rejected because they'd hit legitimate traffic.
 
+- **Held-out evaluation (`pnpm eval`).** Learns rules from the frozen demo capture
+  (`benchmarks/baseline.har`), then scores the built-in rules with and without them on 24
+  labelled requests the learner never saw, through a running gateway and app. Results,
+  including misses and false positives, are in `benchmarks/RESULTS.md`.
+- Test: an approved learned rule is enforced by a running gateway, an unapproved one is not,
+  and unrelated legitimate traffic still reaches the app.
+
 ## 0.4.0
 
 Make ORDER deployable and installable.

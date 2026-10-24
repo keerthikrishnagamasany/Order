@@ -195,6 +195,21 @@ leaked again, and the log says why. A tester entry never trusts an identity by i
 canary replay still blocks, and learned-rule synthesis ignores test traffic. Details are in
 [ARCHITECTURE.md](ARCHITECTURE.md#authorized-security-testing).
 
+## Measured on unseen traffic
+
+`pnpm eval` learns rules from the demo capture, then sends 24 labelled requests the learner
+never saw through a running gateway in front of a real app:
+
+| Rules | Malicious caught | Benign wrongly stopped |
+|---|---|---|
+| Built-in only | 7/12 | 2/12 |
+| Built-in + learned | 8/12 | 2/12 |
+
+The learned rule caught a disguised scanner that the built-in rules missed, and added no
+false positives. The misses and false positives are published too, with what each one
+means, in [benchmarks/](benchmarks/README.md). It's a small, hand-labelled set: it shows
+behaviour, not statistical accuracy.
+
 ## Running it in production
 
 **Identify clients correctly.** Scores are only as good as the client id. By default ORDER uses the connecting address. Behind a load balancer or CDN, tell it which proxies to trust; it then takes the right-most untrusted hop from `X-Forwarded-For`, so a forged entry can't win:
@@ -273,7 +288,7 @@ Full detail in [ARCHITECTURE.md](ARCHITECTURE.md). To build on ORDER, start with
 
 ## Status
 
-`v0.4` plus authorized security testing: Express and Fastify adapters, a reverse proxy, pluggable state with Redis, metrics, safe client identification, npm-ready packages. 119 tests; library, tests and examples are all strictly type-checked. Interfaces may still change before `1.0`. See the [changelog](CHANGELOG.md).
+`v0.4` plus authorized security testing: Express and Fastify adapters, a reverse proxy, pluggable state with Redis, metrics, safe client identification, npm-ready packages. 120 tests; library, tests and examples are all strictly type-checked. Interfaces may still change before `1.0`. See the [changelog](CHANGELOG.md).
 
 ## Roadmap
 
@@ -283,11 +298,14 @@ Full detail in [ARCHITECTURE.md](ARCHITECTURE.md). To build on ORDER, start with
 - Learned-rule synthesis with false-positive checks
 - Express and Fastify adapters, reverse proxy, shared state, metrics
 - Authorized security testing: time-boxed, scoped pen-test engagements
+- Held-out evaluation: learned rules scored on unseen, labelled traffic through a running gateway
 
 **Planned** (contributions welcome)
 
 - Verify signed directory responses (draft Appendix B)
-- Rule-pack test harness: score a private pack against a labelled traffic corpus
+- Path-family learned rules (e.g. a whole probe family, not one URL), validated on held-out data
+- Close the gaps the evaluation found, measured on a new held-out set
+- Plug any private pack and corpus into the evaluation harness
 - Edge runtimes (Cloudflare Workers, Deno). The core is portable; key discovery needs a `fetch` transport
 - A live console on top of the metrics and decision stream
 

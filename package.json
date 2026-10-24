@@ -2,7 +2,7 @@
   "name": "order-monorepo",
   "version": "0.4.0",
   "private": true,
-  "description": "ORDER \u2014 an agent-aware gateway that sorts AI bot traffic, traps the suspicious, and reconstructs attacks offline.",
+  "description": "ORDER — an agent-aware gateway that sorts AI bot traffic, traps the suspicious, and reconstructs attacks offline.",
   "type": "module",
   "engines": {
     "node": ">=22.0.0"
@@ -14,6 +14,7 @@
     "demo": "node --import tsx apps/gateway/examples/demo.ts",
     "build": "tsc -b",
     "bench": "node --import tsx scripts/bench.mts",
+    "eval": "node --import tsx benchmarks/evaluate.ts",
     "pack:check": "node scripts/pack-check.mjs",
     "rename-scope": "node scripts/rename-scope.mjs"
   },

@@ -93,6 +93,10 @@ forcing you to switch ORDER off for the test:
 - Rule synthesis ignores authorized-test traffic entirely, so a tester's probes can neither
   propose a rule nor veto a real one as a false positive.
 
+Live, the label comes only from your configuration, never from the client. Offline,
+`fromHar()` reads the label (and every lane) from the capture file, so captures are trusted
+input: keep them where only ORDER and you can write.
+
 The risk is the same as any allowlist: a stolen tester key gets the tester's latitude
 until it expires. Keep engagements short and scoped, and use a dedicated key per test.
 
