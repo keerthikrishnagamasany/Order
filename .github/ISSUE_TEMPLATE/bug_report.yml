@@ -1,0 +1,51 @@
+name: Bug report
+description: Something in ORDER doesn't work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. **If this is a security vulnerability** (a detector bypass, a way to
+        misclassify traffic, an SSRF or injection path), please don't file it here. Report it
+        privately as described in SECURITY.md.
+
+        Please don't include real credentials, tokens or private data in this issue.
+  - type: dropdown
+    id: package
+    attributes:
+      label: Package
+      options:
+        - "@order/core"
+        - "@order/rules-reference"
+        - "@order/web-bot-auth"
+        - "@order/reconstruct"
+        - "@order/gateway"
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you do, and what did ORDER do?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: The smallest code or request that shows the problem.
+      render: ts
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      placeholder: "ORDER 0.4.0, Node 22.x, macOS / Linux / Windows"
+    validations:
+      required: true
