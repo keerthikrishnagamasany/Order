@@ -4,7 +4,8 @@
  *
  * Order of checks is deliberate:
  *   1. Canary replay   -> blocked, CERTAIN   (provable compromise, beats everything)
- *   2. Trusted identity-> trusted            (unless it carries a HARD signal: likely leaked)
+ *   2. Trusted identity-> trusted            (unless it carries a HARD signal: likely leaked,
+ *                                             except during an active, in-scope authorized test)
  *   3. HARD signal     -> blocked, LIKELY
  *   4. SUSPECT / score -> decoy, GUESSING
  *   5. otherwise       -> normal
@@ -18,7 +19,7 @@ import { CanaryRegistry } from "./canary.js";
 import { normalise } from "./normalise.js";
 import { DEFAULT_SCORING, type ScoringConfig } from "./scoring.js";
 import { isPromise, MemoryStateStore, type StateStore } from "./state.js";
-import type { Decision, Lane, RequestFacts, RulePack, Severity, Signal } from "./types.js";
+import type { AuthorizedTester, Decision, Lane, RequestFacts, RulePack, Severity, Signal } from "./types.js";
 
 export interface RawRequest {
   method: string;
@@ -39,6 +40,11 @@ export interface EngineConfig {
   /** Identities accepted into the trusted lane, mapped to a human label. */
   readonly allowlist: ReadonlyMap<string, string>;
   readonly canaries: CanaryRegistry;
+  /**
+   * Authorized security tests, keyed by identity or `agent:<origin>`. The client must also
+   * be trusted (allowlist or verified agent); this map alone grants nothing.
+   */
+  readonly authorizedTesters?: ReadonlyMap<string, AuthorizedTester>;
   readonly scoring?: ScoringConfig;
   /** Where scores and rate windows live. Default: in-memory (synchronous). */
   readonly state?: StateStore;
@@ -75,6 +81,10 @@ export class Engine {
     this.state = cfg.state ?? new MemoryStateStore();
     this.scoring = { ...DEFAULT_SCORING, ...(cfg.scoring ?? {}) };
     this.now = cfg.now ?? Date.now;
+    for (const [key, t] of cfg.authorizedTesters ?? []) {
+      if (!Number.isFinite(t.expiresAt)) throw new Error(`authorized tester "${key}" needs a finite expiresAt`);
+      if (!t.label) throw new Error(`authorized tester "${key}" needs a label`);
+    }
   }
 
   private factsOf(req: RawRequest): RequestFacts {
@@ -103,6 +113,11 @@ export class Engine {
     const allowlisted = req.identity ? this.cfg.allowlist.get(req.identity) : undefined;
     const label = allowlisted ?? (req.verifiedAgent ? `agent:${req.verifiedAgent}` : undefined);
     if (label !== undefined) {
+      const test = this.authorizedTest(req, facts.path, reasons);
+      if (test !== undefined) {
+        reasons.push(`authorized_test:${test}`);
+        return { done: { ...decision("trusted", 200, "CERTAIN", signals, reasons), authorizedTest: test } };
+      }
       if (sev === "HARD") {
         reasons.push(`trusted_key_hard_signal:${label}`);
         return { done: decision("blocked", 403, "LIKELY", signals, reasons) };
@@ -124,6 +139,29 @@ export class Engine {
       return decision("decoy", 200, "GUESSING", p.signals, p.reasons);
     }
     return decision("normal", 200, "CERTAIN", p.signals, p.reasons);
+  }
+
+  /**
+   * The active engagement for this trusted client, or undefined. A tester entry is keyed
+   * by the presented identity or by `agent:<origin>`. An expired or out-of-scope entry
+   * leaves a reason in the log and falls back to normal trusted handling.
+   */
+  private authorizedTest(req: RawRequest, path: string, reasons: string[]): string | undefined {
+    const testers = this.cfg.authorizedTesters;
+    if (!testers || testers.size === 0) return undefined;
+    const t =
+      (req.identity !== undefined ? testers.get(req.identity) : undefined) ??
+      (req.verifiedAgent !== undefined ? testers.get(`agent:${req.verifiedAgent}`) : undefined);
+    if (!t) return undefined;
+    if (this.now() >= t.expiresAt) {
+      reasons.push(`authorized_test_expired:${t.label}`);
+      return undefined;
+    }
+    if (t.paths && !t.paths.some((p) => path === p || path.startsWith(p.endsWith("/") ? p : `${p}/`))) {
+      reasons.push(`authorized_test_out_of_scope:${t.label}`);
+      return undefined;
+    }
+    return t.label;
   }
 
   private points(sev: Severity | null, hits: number): number {

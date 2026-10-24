@@ -6,6 +6,7 @@
 
 import type { IncomingHttpHeaders } from "node:http";
 import {
+  type AuthorizedTester,
   CanaryRegistry,
   Engine,
   type Decision,
@@ -24,6 +25,12 @@ export type DecoyResponder = (path: string, canaries: CanaryRegistry) => unknown
 
 export interface OrderOptions {
   allowlist?: ReadonlyMap<string, string>;
+  /**
+   * Time-boxed authorized security tests, keyed by an allowlisted identity or
+   * `agent:<origin>`. Their attack payloads are logged and allowed instead of being
+   * treated as a leaked key. See `AuthorizedTester`.
+   */
+  authorizedTesters?: ReadonlyMap<string, AuthorizedTester>;
   /** Rule pack to run. Defaults to the open reference pack; pass `combine(...)` to stack packs. */
   rules?: RulePack;
   /** Scoring thresholds for the decoy lane. */
@@ -86,6 +93,7 @@ export function createOrder(opts: OrderOptions = {}): Order {
     rules: opts.rules ?? referenceRules,
     allowlist: opts.allowlist ?? new Map(),
     canaries,
+    ...(opts.authorizedTesters ? { authorizedTesters: opts.authorizedTesters } : {}),
     ...(opts.state ? { state: opts.state } : {}),
     ...(opts.scoring ? { scoring: opts.scoring } : {}),
     ...(opts.now ? { now: opts.now } : {}),

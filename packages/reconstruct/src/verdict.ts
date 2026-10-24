@@ -63,6 +63,21 @@ function classify(paths: string[], lanes: Set<string>, detectors: Set<string>): 
   if (sensitive.size >= 2 || has(detectors, (d) => d.startsWith("scanner_user_agent"))) {
     h.push({ what: "Reconnaissance / vulnerability scanning", confidence: "LIKELY", evidence: `${sensitive.size} sensitive paths probed; scanner UA seen` });
   }
+  if (has(detectors, (d) => d.startsWith("authorized_test:"))) {
+    const labels = [...detectors].filter((d) => d.startsWith("authorized_test:")).map((d) => d.slice(16));
+    h.push({
+      what: `Authorized security test (${labels.join(", ")}) — attack payloads expected, allowed and logged`,
+      confidence: "CERTAIN",
+      evidence: "trusted identity inside an active, in-scope authorized test engagement",
+    });
+  }
+  if (has(detectors, (d) => d.startsWith("authorized_test_expired") || d.startsWith("authorized_test_out_of_scope"))) {
+    h.push({
+      what: "Tester identity used outside its authorization (expired or out of scope)",
+      confidence: "LIKELY",
+      evidence: "an authorized-test key was presented after expiry or on a path outside its scope",
+    });
+  }
   if (has(detectors, (d) => d.startsWith("trusted_key_hard_signal"))) {
     h.push({ what: "Allowlisted key used for an attack payload — likely leaked/abused credential", confidence: "LIKELY", evidence: "trusted key accompanied a HARD attack signal" });
   }
@@ -113,6 +128,7 @@ export function buildVerdicts(log: DecisionLogEntry[], skip: Set<string> = new S
     for (const r of e.reasons) {
       if (r.includes(":HARD(")) c.detectors.add(`${r.split(":")[0]}:HARD`);
       else if (r.includes(":SUSPECT(")) c.detectors.add(`${r.split(":")[0]}:SUSPECT`);
+      else if (r.startsWith("authorized_test")) c.detectors.add(r);
       else if (r.startsWith("canary_replayed") || r.startsWith("trusted_key_hard_signal")) {
         c.detectors.add(r.split("(")[0] as string);
       }

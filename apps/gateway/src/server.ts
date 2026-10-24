@@ -50,6 +50,8 @@ export interface DecisionLogLine {
   decideMs: number;
   /** Web Bot Auth outcome, when the request carried a signature. */
   botAuth?: string;
+  /** Engagement label, when the request ran under an authorized security test. */
+  authorizedTest?: string;
   /** Set when the request was forwarded and the upstream failed. */
   upstreamError?: string;
 }
@@ -133,7 +135,7 @@ export function createGateway(opts: GatewayOptions = {}): Gateway {
       res.writeHead(r.respond.status, { "content-type": r.respond.contentType });
       res.end(respText);
     } else if (opts.upstream) {
-      const f = await forwardToUpstream(req, res, bodyBuf, { lane: decision.lane, clientId, verifiedAgent: r.verifiedAgent }, opts.upstream);
+      const f = await forwardToUpstream(req, res, bodyBuf, { lane: decision.lane, clientId, verifiedAgent: r.verifiedAgent, authorizedTest: decision.authorizedTest }, opts.upstream);
       status = f.status;
       upstreamError = f.error;
       respText = `[proxied to upstream: ${f.bytes} bytes]`; // real app responses are not retained
@@ -172,6 +174,7 @@ export function createGateway(opts: GatewayOptions = {}): Gateway {
       reasons: [...decision.reasons],
       decideMs: r.decideMs,
       ...(r.botAuth ? { botAuth: r.botAuth } : {}),
+      ...(decision.authorizedTest ? { authorizedTest: decision.authorizedTest } : {}),
       ...(upstreamError ? { upstreamError } : {}),
     };
     opts.metrics?.registry.observe(line);

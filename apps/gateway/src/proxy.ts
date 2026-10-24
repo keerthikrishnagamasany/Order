@@ -11,6 +11,7 @@
  *   x-order-lane            trusted | normal
  *   x-order-client          the client id ORDER resolved
  *   x-order-verified-agent  the agent origin, when trusted via Web Bot Auth
+ *   x-order-authorized-test the engagement label, when the request ran under an authorized test
  *
  * Your app should only trust x-order-* headers if it accepts traffic from ORDER alone.
  */
@@ -31,6 +32,7 @@ export interface ForwardContext {
   lane: string;
   clientId: string;
   verifiedAgent?: string | undefined;
+  authorizedTest?: string | undefined;
 }
 
 export interface ForwardResult {
@@ -93,6 +95,7 @@ export function forwardToUpstream(
     headers["x-order-lane"] = ctx.lane;
     headers["x-order-client"] = ctx.clientId;
     if (ctx.verifiedAgent) headers["x-order-verified-agent"] = ctx.verifiedAgent;
+    if (ctx.authorizedTest) headers["x-order-authorized-test"] = ctx.authorizedTest;
     if (body.length > 0) headers["content-length"] = String(body.length);
     else delete headers["content-length"];
 

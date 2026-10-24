@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { RulePack } from "@order/core";
-import { compileRules, synthesizeRules, uaToken, type CapturedRequest } from "../src/synthesize.js";
+import { compileRules, fromHar, synthesizeRules, uaToken, type CapturedRequest } from "../src/synthesize.js";
 
 let n = 0;
 function req(p: Partial<CapturedRequest>): CapturedRequest {
@@ -109,4 +109,32 @@ test("compileRules only activates approved, non-rejected proposals", () => {
 test("unapproved proposals compile to an empty pack", () => {
   const pack = compileRules(synthesizeRules(capture));
   assert.equal(pack.inspect({ method: "GET", path: "/wp-json/wp/v2/users", query: "", body: "", userAgent: "zgrab/1", clientId: "z" }).length, 0);
+});
+
+test("authorized-test traffic can neither propose nor veto a rule", () => {
+  const withTester: CapturedRequest[] = [
+    ...capture,
+    // a hired tester hitting the scanner path while trusted would otherwise veto the rule
+    req({ client: "pentest", path: "/wp-json/wp/v2/users", lane: "trusted", authorizedTest: "Q4 pen-test" }),
+    // and its own probes on new paths must not become rules either
+    req({ client: "pentest", path: "/only-the-tester-hit-this", lane: "trusted", reasons: ["authorized_test:Q4 pen-test"] }),
+  ];
+  const ps = synthesizeRules(withTester);
+  const wp = ps.find((p) => p.id === "path:/wp-json/wp/v2/users");
+  assert.equal(wp?.status, "proposed");
+  assert.equal(wp?.falsePositives.hits, 0);
+  assert.equal(ps.some((p) => p.match === "/only-the-tester-hit-this"), false);
+});
+
+test("fromHar reads the authorized-test label from _order or from reasons", () => {
+  const har = {
+    log: {
+      entries: [
+        { request: { url: "http://x/a", headers: [] }, _order: { lane: "trusted", authorizedTest: "T1" } },
+        { request: { url: "http://x/b", headers: [] }, _order: { lane: "trusted", reasons: ["authorized_test:T2"] } },
+        { request: { url: "http://x/c", headers: [] }, _order: { lane: "trusted" } },
+      ],
+    },
+  };
+  assert.deepEqual(fromHar(har).map((r) => r.authorizedTest), ["T1", "T2", undefined]);
 });

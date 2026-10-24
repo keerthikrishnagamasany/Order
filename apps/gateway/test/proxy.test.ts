@@ -195,3 +195,28 @@ test("capture is bounded and can be switched off", async () => {
     await app.close();
   }
 });
+
+test("an authorized test reaches the app, labelled, and can't be forged by a client", async () => {
+  const app = await upstreamApp();
+  const gw = await gateway(app.url, {
+    allowlist: new Map([["pentest-key", "pen-test firm"]]),
+    authorizedTesters: new Map([["pentest-key", { label: "Q4 pen-test", expiresAt: Date.now() + 60_000 }]]),
+  });
+  try {
+    const attack = `${gw.base}/api/v1/products?id=${encodeURIComponent("1' OR 1=1--")}`;
+    const res = await fetch(attack, { headers: { "user-agent": "Mozilla/5.0", "x-mcp-key": "pentest-key" } });
+    assert.equal(res.status, 200);
+    assert.equal(app.seen.length, 1);
+    assert.equal(app.seen[0]?.headers["x-order-lane"], "trusted");
+    assert.equal(app.seen[0]?.headers["x-order-authorized-test"], "Q4 pen-test");
+    assert.equal(gw.log[0]?.authorizedTest, "Q4 pen-test");
+    assert.ok(gw.log[0]?.reasons.some((r) => r.startsWith("sql_injection")));
+
+    // an ordinary client claiming to be a test gets nothing
+    await fetch(`${gw.base}/api/v1/products`, { headers: { "user-agent": "Mozilla/5.0", "x-order-authorized-test": "Q4 pen-test" } });
+    assert.equal(app.seen[1]?.headers["x-order-authorized-test"], undefined);
+  } finally {
+    await gw.close();
+    await app.close();
+  }
+});

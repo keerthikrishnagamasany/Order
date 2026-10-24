@@ -40,6 +40,7 @@ Request → Normalise → RulePack.inspect → Pipeline.decide → Lane + Decisi
   | # | Condition | Lane | Confidence |
   |---|-----------|------|------------|
   | 1 | a planted canary token is replayed | `blocked` | `CERTAIN` |
+  | 1a | trusted identity inside an active, in-scope authorized test | `trusted` | `CERTAIN` (labelled) |
   | 2 | allowlisted identity **and** a `HARD` signal | `blocked` | `LIKELY` (leaked key) |
   | 3 | allowlisted identity, otherwise | `trusted` | `CERTAIN` |
   | 4 | any `HARD` signal | `blocked` | `LIKELY` |
@@ -65,13 +66,35 @@ makes ORDER's verdicts auditable rather than hand-wavy.
 
 | Lane | Meaning | Served |
 |------|---------|--------|
-| `trusted` | allowlisted / (future) cryptographically verified agent | real data, still monitored |
+| `trusted` | allowlisted key or verified Web Bot Auth agent | real data, still monitored |
 | `normal` | unknown but clean | ordinary public data |
 | `decoy` | suspicious, unproven | convincing fake data seeded with canaries |
 | `blocked` | hard signal or canary replay | `403` |
 
 A trusted identity is **not** a free pass: a `HARD` attack signal on an allowlisted key
 is treated as a likely leaked credential and dropped to `blocked` (row 2 above).
+
+### Authorized security testing
+
+Row 2 has an obvious side effect: a penetration tester you hired, using a trusted key,
+would be blocked as a "leaked key". `authorizedTesters` makes that case explicit instead of
+forcing you to switch ORDER off for the test:
+
+- An entry is keyed by an identity or `agent:<origin>`, and **grants nothing on its own**:
+  the client must already be trusted through the allowlist or a verified signature.
+- Every entry has a required `expiresAt` and an optional list of path prefixes. Expired or
+  out-of-scope use falls back to row 2 and leaves `authorized_test_expired` /
+  `authorized_test_out_of_scope` in the log, which reconstruction reports as misuse.
+- Allowed requests keep all their signals, carry `authorized_test:<label>` in their
+  reasons, are counted in `order_authorized_test_total`, and reach your app with an
+  `x-order-authorized-test` header (client-sent copies are stripped).
+- A canary replay (row 1) still blocks: a tester who exfiltrates decoy data and uses it
+  has found something real, and it should look exactly like an attack.
+- Rule synthesis ignores authorized-test traffic entirely, so a tester's probes can neither
+  propose a rule nor veto a real one as a false positive.
+
+The risk is the same as any allowlist: a stolen tester key gets the tester's latitude
+until it expires. Keep engagements short and scoped, and use a dedicated key per test.
 
 ## Canary tokens
 

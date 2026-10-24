@@ -4,6 +4,7 @@
  *   order_decisions_total{lane}            requests by lane
  *   order_signals_total{signal}            detector hits
  *   order_bot_auth_total{result}           Web Bot Auth outcomes
+ *   order_authorized_test_total{test}      requests allowed under an authorized test
  *   order_upstream_errors_total            failed forwards (proxy mode)
  *   order_decide_seconds                   decision latency histogram (excludes upstream)
  */
@@ -13,6 +14,7 @@ export interface MetricsInput {
   reasons: readonly string[];
   decideMs: number;
   botAuth?: string | undefined;
+  authorizedTest?: string | undefined;
   upstreamError?: string | undefined;
 }
 
@@ -26,6 +28,7 @@ export class Metrics {
   private readonly lanes = new Map<string, number>();
   private readonly signals = new Map<string, number>();
   private readonly botAuth = new Map<string, number>();
+  private readonly tests = new Map<string, number>();
   private upstreamErrors = 0;
   private readonly bucketCounts = BUCKETS.map(() => 0);
   private sum = 0;
@@ -38,6 +41,7 @@ export class Metrics {
       if (m) this.signals.set(m[1] as string, (this.signals.get(m[1] as string) ?? 0) + 1);
     }
     if (e.botAuth) this.botAuth.set(e.botAuth, (this.botAuth.get(e.botAuth) ?? 0) + 1);
+    if (e.authorizedTest) this.tests.set(e.authorizedTest, (this.tests.get(e.authorizedTest) ?? 0) + 1);
     if (e.upstreamError) this.upstreamErrors++;
     const s = e.decideMs / 1000;
     this.sum += s;
@@ -56,6 +60,7 @@ export class Metrics {
     counter("order_decisions_total", "Requests decided, by lane.", "lane", this.lanes);
     counter("order_signals_total", "Detector signals raised, by signal.", "signal", this.signals);
     counter("order_bot_auth_total", "Web Bot Auth verification outcomes.", "result", this.botAuth);
+    counter("order_authorized_test_total", "Requests allowed under an authorized security test.", "test", this.tests);
     out.push("# HELP order_upstream_errors_total Failed forwards to the upstream app.", "# TYPE order_upstream_errors_total counter", `order_upstream_errors_total ${this.upstreamErrors}`);
     out.push("# HELP order_decide_seconds Time spent verifying and deciding a request.", "# TYPE order_decide_seconds histogram");
     BUCKETS.forEach((b, i) => out.push(`order_decide_seconds_bucket{le="${b}"} ${this.bucketCounts[i]}`));

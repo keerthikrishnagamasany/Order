@@ -8,6 +8,7 @@ export type {
   RequestFacts,
   RulePack,
   Decision,
+  AuthorizedTester,
   ClientState,
 } from "./types.js";
 export { normalise, urlDecodeDeep } from "./normalise.js";

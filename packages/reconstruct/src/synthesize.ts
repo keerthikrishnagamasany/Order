@@ -13,6 +13,8 @@
  *   - Evidence or it didn't happen. Every proposal lists the capture ordinals behind it.
  *   - False positives are checked, not assumed away. Zero benign matches IN THIS CAPTURE
  *     is necessary, not sufficient — so proposals are never auto-approved.
+ *   - Authorized tests are excluded. A hired tester's probes are neither attack evidence
+ *     nor legitimate traffic, so they can neither propose nor veto a rule.
  *   - Honest confidence. Synthesised rules top out at LIKELY; nothing learned is CERTAIN.
  */
 
@@ -30,6 +32,8 @@ export interface CapturedRequest {
   lane: string;
   confidence: string;
   reasons: string[];
+  /** Engagement label, when the request ran under an authorized security test. */
+  authorizedTest?: string | undefined;
 }
 
 export type ProposalKind = "path" | "user_agent";
@@ -65,7 +69,7 @@ export function fromHar(har: unknown): CapturedRequest[] {
       startedDateTime?: string;
       request?: { method?: string; url?: string; headers?: { name: string; value: string }[] };
       response?: { status?: number };
-      _order?: { lane?: string; confidence?: string; reasons?: string[]; client?: string };
+      _order?: { lane?: string; confidence?: string; reasons?: string[]; client?: string; authorizedTest?: string };
     };
     if (!e.request?.url || !e._order?.lane) return;
     let path = "/";
@@ -88,9 +92,15 @@ export function fromHar(har: unknown): CapturedRequest[] {
       lane: e._order.lane,
       confidence: e._order.confidence ?? "GUESSING",
       reasons: e._order.reasons ?? [],
+      authorizedTest: e._order.authorizedTest ?? testLabel(e._order.reasons ?? []),
     });
   });
   return out;
+}
+
+function testLabel(reasons: readonly string[]): string | undefined {
+  const r = reasons.find((x) => x.startsWith("authorized_test:"));
+  return r ? r.slice("authorized_test:".length) : undefined;
 }
 
 /** The product token of a user-agent, e.g. "sqlmap/1.7" -> "sqlmap". */
@@ -129,8 +139,11 @@ export interface SynthesizeOptions {
 }
 
 export function synthesizeRules(reqs: CapturedRequest[], opts: SynthesizeOptions = {}): RuleProposal[] {
-  const hostile = reqs.filter((r) => HOSTILE.has(r.lane));
-  const benign = reqs.filter((r) => BENIGN.has(r.lane));
+  // Authorized-test traffic is neither evidence of attack nor of legitimate use: a hired
+  // tester's probes would otherwise count as "benign" and veto real rules.
+  const scored = reqs.filter((r) => r.authorizedTest === undefined);
+  const hostile = scored.filter((r) => HOSTILE.has(r.lane));
+  const benign = scored.filter((r) => BENIGN.has(r.lane));
 
   // Candidate features, generalised from hostile requests only.
   const candidates = new Map<string, { kind: ProposalKind; match: string }>();

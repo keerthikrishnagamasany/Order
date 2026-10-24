@@ -157,6 +157,28 @@ rejected user_agent:agent         GUESSING - would also match 1 trusted request(
 
 The last line is the point. The forged signature used the same user-agent as the real signed agent. A naive "block this UA" rule would have locked out a legitimate partner; ORDER rejects it before a human sees it as a candidate. Learned rules top out at `LIKELY`, are never auto-approved, and a rejected proposal can't be compiled in even if someone flips `approved`.
 
+## Authorized security testing
+
+A trusted key that sends attack payloads is normally blocked as a likely leaked credential.
+That's what you want, except when it's your own pen-tester. Declare the engagement instead
+of switching ORDER off:
+
+```ts
+const order = createOrder({
+  allowlist: new Map([["pentest-key-q4", "external pen-test firm"]]),
+  authorizedTesters: new Map([
+    ["pentest-key-q4", { label: "Q4 pen-test", expiresAt: Date.parse("2026-11-07"), paths: ["/api"] }],
+  ]),
+});
+```
+
+During the window, in-scope requests from that key are allowed through, tagged
+`authorized_test:Q4 pen-test`, counted in metrics and forwarded with an
+`x-order-authorized-test` header. After expiry or outside `/api` the key is treated as
+leaked again, and the log says why. A tester entry never trusts an identity by itself, a
+canary replay still blocks, and learned-rule synthesis ignores test traffic. Details are in
+[ARCHITECTURE.md](ARCHITECTURE.md#authorized-security-testing).
+
 ## Running it in production
 
 **Identify clients correctly.** Scores are only as good as the client id. By default ORDER uses the connecting address. Behind a load balancer or CDN, tell it which proxies to trust; it then takes the right-most untrusted hop from `X-Forwarded-For`, so a forged entry can't win:

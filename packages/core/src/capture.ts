@@ -27,7 +27,7 @@ export interface HarEntry {
   time: number;
   request: Record<string, unknown>;
   response: Record<string, unknown>;
-  _order: { lane: string; confidence: string; reasons: readonly string[]; client?: string };
+  _order: { lane: string; confidence: string; reasons: readonly string[]; client?: string; authorizedTest?: string };
   cache: Record<string, never>;
   timings: { send: number; wait: number; receive: number };
 }
@@ -67,6 +67,7 @@ export function toHarEntry(i: CaptureInput): HarEntry {
       confidence: i.decision.confidence,
       reasons: i.decision.reasons,
       ...(i.clientId !== undefined ? { client: i.clientId } : {}),
+      ...(i.decision.authorizedTest !== undefined ? { authorizedTest: i.decision.authorizedTest } : {}),
     },
     cache: {},
     timings: { send: 0, wait: i.waitedMs, receive: 0 },

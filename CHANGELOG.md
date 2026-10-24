@@ -2,6 +2,17 @@
 
 ORDER is created and maintained by Keerthi Krishna Gamasany.
 
+## Unreleased
+
+- **Authorized security testing.** `authorizedTesters` declares time-boxed, path-scoped test
+  engagements for already-trusted identities or verified agents. In-scope attack payloads
+  are allowed and labelled instead of being treated as a leaked key. Expired or out-of-scope
+  use falls back to blocking and is reported. `Decision.authorizedTest`, the
+  `x-order-authorized-test` upstream header, the `order_authorized_test_total` metric, and the
+  `_order.authorizedTest` capture field carry the label.
+- Rule synthesis and verdicts now exclude or label authorized-test traffic, so a tester can't
+  veto a real rule or be reported as a leaked key.
+
 ## 0.4.0
 
 Make ORDER deployable and installable.
