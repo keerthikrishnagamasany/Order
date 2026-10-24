@@ -71,14 +71,24 @@ function classify(paths: string[], lanes: Set<string>, detectors: Set<string>): 
       evidence: "trusted identity inside an active, in-scope authorized test engagement",
     });
   }
-  if (has(detectors, (d) => d.startsWith("authorized_test_expired") || d.startsWith("authorized_test_out_of_scope"))) {
+  const expired = has(detectors, (d) => d.startsWith("authorized_test_expired"));
+  const outOfScope = has(detectors, (d) => d.startsWith("authorized_test_out_of_scope"));
+  if (expired || outOfScope) {
+    const how = [expired ? "after its authorization expired" : "", outOfScope ? "outside its authorized paths" : ""].filter(Boolean).join(" and ");
     h.push({
-      what: "Tester identity used outside its authorization (expired or out of scope)",
+      what: `Tester key used ${how} — blocked as a possibly leaked key`,
       confidence: "LIKELY",
-      evidence: "an authorized-test key was presented after expiry or on a path outside its scope",
+      evidence: "an authorized-test key carried an attack signal where its authorization did not apply",
     });
   }
-  if (has(detectors, (d) => d.startsWith("trusted_key_hard_signal"))) {
+  if (has(detectors, (d) => d.startsWith("bot_auth_invalid"))) {
+    h.push({
+      what: "Presented an agent signature that failed verification — forged, tampered or replayed",
+      confidence: "LIKELY",
+      evidence: "Web Bot Auth signature did not verify for this request",
+    });
+  }
+  if (!expired && !outOfScope && has(detectors, (d) => d.startsWith("trusted_key_hard_signal"))) {
     h.push({ what: "Allowlisted key used for an attack payload — likely leaked/abused credential", confidence: "LIKELY", evidence: "trusted key accompanied a HARD attack signal" });
   }
   if (h.length === 0 && lanes.size === 1 && lanes.has("trusted")) {

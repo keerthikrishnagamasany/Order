@@ -17,5 +17,13 @@ test("a tester key used after expiry is flagged", () => {
   const [v] = buildVerdicts([
     e("pentest", "blocked", ["sql_injection:HARD(query='or 1=1')", "authorized_test_expired:Q4 pen-test", "trusted_key_hard_signal:pen-test firm"]),
   ]);
-  assert.ok(v?.hypotheses.some((h) => h.what.startsWith("Tester identity used outside its authorization")));
+  assert.ok(v?.hypotheses.some((h) => h.what.startsWith("Tester key used after its authorization expired")));
+  // one explanation, not two: the misuse line replaces the generic leaked-key line
+  assert.equal(v?.hypotheses.some((h) => h.what.startsWith("Allowlisted key used")), false);
+});
+
+test("a forged or replayed agent signature is reported, not called ordinary traffic", () => {
+  const [v] = buildVerdicts([e("replayer", "decoy", ["bot_auth_invalid:SUSPECT(identity='authority mismatch')", "score=3"])]);
+  assert.ok(v?.hypotheses.some((h) => h.what.startsWith("Presented an agent signature that failed verification")));
+  assert.equal(v?.hypotheses.some((h) => h.what === "Ordinary user traffic"), false);
 });

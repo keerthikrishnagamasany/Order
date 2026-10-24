@@ -12,6 +12,11 @@ ORDER is created and maintained by Keerthi Krishna Gamasany.
   `_order.authorizedTest` capture field carry the label.
 - Rule synthesis and verdicts now exclude or label authorized-test traffic, so a tester can't
   veto a real rule or be reported as a leaked key.
+- Verdicts now report forged or replayed agent signatures, and give one clear explanation
+  when a tester key is used outside its authorization.
+- `pnpm demo` now shows all three stages: the lane for each request, what each client was
+  most likely doing, and the rules the capture supports, including a new rule learned from
+  a path no built-in rule knows and the rules rejected because they'd hit legitimate traffic.
 
 ## 0.4.0
 

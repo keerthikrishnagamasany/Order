@@ -1,4 +1,4 @@
-<svg width="1100" height="660" viewBox="0 0 1100 660" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ORDER architecture: run modes, the live decision path with Web Bot Auth and shared state, and the offline learned-rules loop">
+<svg width="1100" height="660" viewBox="0 0 1100 660" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ORDER architecture: run modes, the live decision path with Web Bot Auth, shared state and authorized pen-tests, and the offline learned-rules loop">
   <style>
     .box{fill:#151b24;stroke:#2a3442;stroke-width:1.5}
     .hl{fill:#151b24;stroke:#4da3ff;stroke-width:1.5}
@@ -66,10 +66,17 @@
   <text x="230" y="330" class="sub">HTTPS · SSRF-guarded</text>
   <path class="flow" d="M307,280 L307,252" marker-end="url(#a)"/>
 
-  <rect class="box" x="788" y="282" width="205" height="64" rx="10"/>
-  <text x="806" y="309" class="lbl" font-size="14">State store</text>
-  <text x="806" y="330" class="sub">memory or Redis</text>
-  <path class="flow" d="M890,280 L890,252" marker-end="url(#a)"/>
+  <rect class="box" x="788" y="282" width="130" height="74" rx="10"/>
+  <text x="802" y="309" class="lbl" font-size="14">State store</text>
+  <text x="802" y="330" class="sub">memory or</text>
+  <text x="802" y="345" class="sub">Redis</text>
+  <path class="flow" d="M853,280 L853,252" marker-end="url(#a)"/>
+
+  <rect class="hl" x="930" y="282" width="130" height="74" rx="10"/>
+  <text x="944" y="309" class="lbl" font-size="14">Pen-tests</text>
+  <text x="944" y="330" class="sub">time-boxed,</text>
+  <text x="944" y="345" class="sub">path-scoped</text>
+  <path class="flow" d="M995,280 L995,252" marker-end="url(#a)"/>
 
   <!-- lanes -->
   <rect class="box" x="788" y="372" width="272" height="132" rx="10"/>
@@ -78,7 +85,7 @@
   <text x="806" y="448" class="lane" fill="#6aa6d6">normal  → your app</text>
   <text x="806" y="470" class="lane" fill="#d29922">decoy   → fake data + canaries</text>
   <text x="806" y="492" class="lane" fill="#f85149">blocked → 403</text>
-  <path class="flow" d="M1030,252 L1030,370" marker-end="url(#a)"/>
+  <path class="flow" d="M924,252 L924,370" marker-end="url(#a)"/>
 
   <!-- OFFLINE PATH -->
   <text x="40" y="372" class="sec" fill="#4da3ff">● OFFLINE — LATER, NEVER IN THE REQUEST PATH</text>
@@ -110,6 +117,6 @@
 
   <!-- footer -->
   <line x1="40" y1="572" x2="1060" y2="572" stroke="#21262d"/>
-  <text x="40" y="600" class="sub">Every box is a replaceable part: rule packs, key resolver, transport, state store, decoy content,</text>
+  <text x="40" y="600" class="sub">Every box is a replaceable part: rule packs, key resolver, transport, state store, pen-test policy, decoy content,</text>
   <text x="40" y="620" class="sub">client identity, capture and metrics. Private rules load through the same interface and never ship here.</text>
 </svg>

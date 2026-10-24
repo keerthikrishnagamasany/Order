@@ -54,9 +54,25 @@ replayed-sig    /api/v1/products              decoy     decoy     PASS   (signat
 scanner-A       /.env                         blocked   blocked   PASS
 probe-B         /api/v1/products              blocked   blocked   PASS   (encoded SQLi)
 probe-C         /api/v1/assistant             decoy     decoy     PASS   (prompt injection)
+pentest         /api/v1/products              trusted   trusted   PASS   (declared pen-test)
+pentest         /.env                         blocked   blocked   PASS   (outside its scope)
 ...
-11/11 landed in the expected lane
+15/15 landed in the expected lane
 ```
+
+Then it reconstructs what each client was doing, and proposes rules from the capture:
+
+```
+pentest         CERTAIN   Authorized security test (Q4 pen-test) — attack payloads expected, allowed and logged
+                LIKELY    Tester key used outside its authorized paths — blocked as a possibly leaked key
+replayed-sig    LIKELY    Presented an agent signature that failed verification — forged, tampered or replayed
+...
+NEW       path /wp-json/wp/v2/users          LIKELY    2 clients, 0 false positives
+REJECTED  user_agent swift-agent             would also match 1 trusted request(s) in this capture
+```
+
+The new rule is a path no built-in rule knows, probed by two different scanners. The
+rejected one would have blocked a legitimate partner.
 
 ## Use it in your app
 
@@ -257,17 +273,23 @@ Full detail in [ARCHITECTURE.md](ARCHITECTURE.md). To build on ORDER, start with
 
 ## Status
 
-`v0.4` — Express and Fastify adapters, a reverse proxy, pluggable state with Redis, metrics, safe client identification, npm-ready packages. 105 tests; library, tests and examples are all strictly type-checked. Interfaces may still change before `1.0`. See the [changelog](CHANGELOG.md).
+`v0.4` plus authorized security testing: Express and Fastify adapters, a reverse proxy, pluggable state with Redis, metrics, safe client identification, npm-ready packages. 119 tests; library, tests and examples are all strictly type-checked. Interfaces may still change before `1.0`. See the [changelog](CHANGELOG.md).
 
 ## Roadmap
 
-- [x] Web Bot Auth verification with HTTPS key discovery and SSRF protection
-- [x] Learned-rule synthesis with false-positive checks
-- [x] Express and Fastify adapters, reverse proxy, shared state, metrics
-- [ ] Verify signed directory responses (draft Appendix B)
-- [ ] Rule-pack test harness: score a private pack against a labelled traffic corpus
-- [ ] Edge runtimes (Cloudflare Workers, Deno) — the core is portable; key discovery needs a `fetch` transport
-- [ ] A live console on top of the metrics and decision stream
+**Shipped**
+
+- Web Bot Auth verification with HTTPS key discovery and SSRF protection
+- Learned-rule synthesis with false-positive checks
+- Express and Fastify adapters, reverse proxy, shared state, metrics
+- Authorized security testing: time-boxed, scoped pen-test engagements
+
+**Planned** (contributions welcome)
+
+- Verify signed directory responses (draft Appendix B)
+- Rule-pack test harness: score a private pack against a labelled traffic corpus
+- Edge runtimes (Cloudflare Workers, Deno). The core is portable; key discovery needs a `fetch` transport
+- A live console on top of the metrics and decision stream
 
 ## Contributing
 
