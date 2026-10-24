@@ -144,7 +144,7 @@ createGateway({
   rules,
   state: kvStore,
   decoy: myDecoy,
-  botAuth: { resolver: new HttpsDirectoryResolver() },
+  botAuth: { resolver: new HttpsDirectoryResolver(), authorities: ["api.example.com"] },
   clientIdentity: { trustedProxies: ["10.0.0.1"] },
   upstream: { url: "http://127.0.0.1:3000" },
   onDecision: (d) => {

@@ -8,6 +8,7 @@ import type { IncomingHttpHeaders } from "node:http";
 import {
   type AuthorizedTester,
   CanaryRegistry,
+  type CanaryOptions,
   Engine,
   type Decision,
   type RulePack,
@@ -43,8 +44,17 @@ export interface OrderOptions {
   /**
    * Verify Web Bot Auth signatures. Verified agents enter the trusted lane; a forged or
    * malformed signature raises a SUSPECT signal; an unresolvable key changes nothing.
+   *
+   * `authorities` lists the host names (with port, if not the default) this deployment serves,
+   * e.g. `["api.example.com"]`, or is a predicate. A signature only verifies when the request's
+   * Host is one of them, so a signature an agent made for another site can't be replayed here
+   * with that site's Host. It plays the role of a JWT audience and is required.
    */
-  botAuth?: { resolver: KeyResolver; maxAgeSec?: number };
+  botAuth?: { resolver: KeyResolver; authorities: readonly string[] | ((authority: string) => boolean); maxAgeSec?: number };
+  /** Canary settings, e.g. a `secret` shared by all instances. See CanaryOptions. */
+  canary?: Pick<CanaryOptions, "secret" | "ttlMs">;
+  /** Characters of decoded query and body inspected; longer input is flagged. Default 1 MiB. */
+  inspectionLimit?: number;
   /** Replace the built-in decoy content. */
   decoy?: DecoyResponder;
   /** How clients are identified. Default: the connecting socket's address. */
@@ -84,8 +94,30 @@ function one(h: string | string[] | undefined): string | undefined {
   return Array.isArray(h) ? h.join(", ") : h;
 }
 
+function servesAuthority(authorities: readonly string[] | ((a: string) => boolean) | undefined, host: string): boolean {
+  // Fail closed: with no authorities configured, no signature can verify.
+  if (!host || !authorities) return false;
+  return typeof authorities === "function" ? authorities(host) : authorities.some((a) => a.toLowerCase() === host);
+}
+
+/** Headers that are never credentials, or that a third-party page can set on a victim's request. */
+const NOT_CREDENTIALS = new Set(["host", "content-length", "content-type", "user-agent", "accept", "accept-language", "accept-encoding", "connection", "referer", "origin", "x-forwarded-for", "x-sim-client"]);
+
+/** Header values a stolen canary could be replayed in (Authorization, Cookie, custom keys…), credential headers first. */
+function credentialText(headers: IncomingHttpHeaders): string {
+  const first: string[] = [];
+  const rest: string[] = [];
+  for (const [k, v] of Object.entries(headers)) {
+    if (v === undefined || NOT_CREDENTIALS.has(k)) continue;
+    const val = Array.isArray(v) ? v.join(" ") : v;
+    (k === "authorization" || k === "cookie" || k === "proxy-authorization" || k.includes("key") || k.includes("token") ? first : rest).push(val);
+  }
+  return [...first, ...rest].join(" ");
+}
+
 export function createOrder(opts: OrderOptions = {}): Order {
   const canaries = new CanaryRegistry({
+    ...(opts.canary ?? {}),
     ...(opts.state ? { store: opts.state } : {}),
     ...(opts.now ? { now: opts.now } : {}),
   });
@@ -94,6 +126,7 @@ export function createOrder(opts: OrderOptions = {}): Order {
     allowlist: opts.allowlist ?? new Map(),
     canaries,
     ...(opts.authorizedTesters ? { authorizedTesters: opts.authorizedTesters } : {}),
+    ...(opts.inspectionLimit !== undefined ? { inspectionLimit: opts.inspectionLimit } : {}),
     ...(opts.state ? { state: opts.state } : {}),
     ...(opts.scoring ? { scoring: opts.scoring } : {}),
     ...(opts.now ? { now: opts.now } : {}),
@@ -110,10 +143,15 @@ export function createOrder(opts: OrderOptions = {}): Order {
     const extraSignals: Signal[] = [];
     const sigInput = one(input.headers["signature-input"]);
     const sig = one(input.headers["signature"]);
-    if (opts.botAuth && sigInput && sig) {
+    const host = (one(input.headers.host) ?? "").toLowerCase();
+    if (opts.botAuth && sigInput && sig && !servesAuthority(opts.botAuth.authorities, host)) {
+      // A signature for a site this deployment doesn't serve can never verify here.
+      botAuth = "invalid";
+      extraSignals.push({ name: "bot_auth_invalid", severity: "SUSPECT", where: "identity", excerpt: "authority not served here" });
+    } else if (opts.botAuth && sigInput && sig) {
       const r = await verifyWebBotAuth(
         { signatureInput: sigInput, signature: sig, signatureAgent: one(input.headers["signature-agent"]) },
-        { method: input.method, authority: one(input.headers.host) ?? "", path: url.pathname, targetUri: url.toString() },
+        { method: input.method, authority: host, path: url.pathname, targetUri: url.toString() },
         opts.botAuth.resolver,
         opts.botAuth.maxAgeSec !== undefined ? { maxAgeSec: opts.botAuth.maxAgeSec } : {},
       );
@@ -134,6 +172,7 @@ export function createOrder(opts: OrderOptions = {}): Order {
       clientId,
       verifiedAgent,
       extraSignals,
+      credentials: credentialText(input.headers),
     });
 
     let respond: CheckResult["respond"];

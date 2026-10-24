@@ -33,7 +33,7 @@ ORDER is a **framework**: a complete, working baseline you can run today, built 
 - **Cryptographically verified agents.** Agents that sign requests with [Web Bot Auth](#signed-ai-agents-web-bot-auth), the IETF standard, are admitted to `trusted`. Forged or replayed signatures are trapped.
 - **A decoy that pays off.** Suspicious-but-unproven clients get convincing fake data seeded with **canary tokens**. If one is ever replayed, that is *provable* compromise — the one thing ORDER labels `CERTAIN`.
 - **It learns, carefully.** From a captured session ORDER proposes [new detection rules](#learned-rules), each with its evidence, and rejects any rule that would also have hit your legitimate traffic. A human approves before anything goes live.
-- **Fast and dependency-free.** About **2.8 µs per decision** ([benchmark](#performance)) and **zero runtime dependencies** in every package.
+- **Fast and dependency-free.** About **4 µs per decision** ([benchmark](#performance)) and **zero runtime dependencies** in every package.
 
 ## Quickstart
 
@@ -132,8 +132,10 @@ not only with its own signer.
 ```ts
 import { orderExpress, HttpsDirectoryResolver } from "@order/gateway";
 
-app.use(orderExpress({ botAuth: { resolver: new HttpsDirectoryResolver() } }));
+app.use(orderExpress({ botAuth: { resolver: new HttpsDirectoryResolver(), authorities: ["api.example.com"] } }));
 ```
+
+`authorities` lists the host names your deployment serves (or is a predicate). A signature only verifies when the request's `Host` is one of them, the way a JWT audience is checked. Without it, an agent's signature captured on another website could be replayed here. It's required; if it's missing at runtime, no signature verifies.
 
 | Result | Meaning | ORDER does |
 |---|---|---|
@@ -229,19 +231,19 @@ behaviour, not statistical accuracy.
 createGateway({ clientIdentity: { trustedProxies: ["10.0.0.1"] } });
 ```
 
-**Share state across instances.** By default scores, rate windows and canaries live in memory, bounded and expiring. To run several instances, or keep canaries across restarts, use the Redis store with the client you already have:
+**Share state across instances.** By default scores and rate windows live in memory, bounded and expiring. Canaries are self-verifying (an HMAC over their issue time), so nothing is stored that traffic could flush. To run several instances, give them the same canary secret, and share scores through Redis with the client you already have:
 
 ```ts
 import { RedisStateStore } from "@order/gateway";
 
 const state = new RedisStateStore((args) => redis.sendCommand(args));          // node-redis
 // const state = new RedisStateStore((args) => ioredis.call(args[0], ...args.slice(1)));
-createGateway({ state });
+createGateway({ state, canary: { secret: process.env.ORDER_CANARY_SECRET } }); // ≥32 random bytes, kept private
 ```
 
 The Redis store is tested against a protocol-level fake, not yet against a live Redis server.
 
-**Watch it.** Prometheus metrics, served only to loopback clients by default:
+**Watch it.** Prometheus metrics, served by default only to loopback clients that aren't configured trusted proxies (so a local TLS terminator can't relay the internet to them):
 
 ```ts
 import { createGateway, Metrics } from "@order/gateway";
@@ -251,7 +253,9 @@ createGateway({ metrics: { registry: new Metrics() } });   // GET /__order/metri
 
 `order_decisions_total{lane}`, `order_signals_total{signal}`, `order_bot_auth_total{result}`, `order_upstream_errors_total`, and an `order_decide_seconds` histogram.
 
-**Bound everything.** Request bodies over `maxBodyBytes` (default 1 MiB) get `413` rather than being truncated. Capture keeps at most `capture.maxEntries` (default 10,000) or can be turned off with `capture: false`.
+**Bound everything.** Request bodies over `maxBodyBytes` (default 1 MiB) get `413` rather than being truncated. Compressed request bodies (`Content-Encoding` other than identity) get `415`, because ORDER can only vouch for bytes it inspected. Detectors inspect the whole decoded query and body, up to `inspectionLimit` (default 1 MiB, matching the body cap); anything longer is flagged `oversize_input` rather than passed as clean. Capture is bounded by `capture.maxEntries` (default 10,000) **and** `capture.maxBytes` (default 64 MiB), or can be turned off with `capture: false`.
+
+**Captures are minimised.** Credential headers (`Authorization`, `Cookie`, `x-mcp-key`, signatures…) are always redacted, query values and request bodies are dropped unless you set `capture.includeQueryValues` / `capture.includeBodies`, and each kept text is capped. Reconstruction needs none of them.
 
 **Tune on your own traffic.** The reference rules are conservative starting points. Measure your false-positive rate on real traffic before trusting any automatic block.
 
@@ -261,7 +265,7 @@ createGateway({ metrics: { registry: new Metrics() } });   // GET /__order/metri
 
 | | Result |
 |---|---|
-| `Engine.decide()`, reference rules, 30% attack traffic | ~205,000 decisions/sec · p50 2.8 µs · p99 ~10 µs |
+| `Engine.decide()`, reference rules, 30% attack traffic | ~168,000 decisions/sec · p50 4.1 µs · p99 ~17 µs |
 | Gateway vs a bare Node server, same load generator | no measurable difference — both limited by the load generator |
 
 The per-decision cost is the meaningful number. HTTP throughput on a shared 2-vCPU box measures the load generator, not ORDER. Run `pnpm bench` on your own hardware.
@@ -299,7 +303,7 @@ Full detail in [ARCHITECTURE.md](ARCHITECTURE.md). To build on ORDER, start with
 
 ## Status
 
-`v0.4` plus authorized security testing: Express and Fastify adapters, a reverse proxy, pluggable state with Redis, metrics, safe client identification, npm-ready packages. 124 tests; library, tests and examples are all strictly type-checked. Interfaces may still change before `1.0`. See the [changelog](CHANGELOG.md).
+`v0.4` plus authorized security testing: Express and Fastify adapters, a reverse proxy, pluggable state with Redis, metrics, safe client identification, npm-ready packages. 152 tests; library, tests and examples are all strictly type-checked. Interfaces may still change before `1.0`. See the [changelog](CHANGELOG.md).
 
 ## Roadmap
 

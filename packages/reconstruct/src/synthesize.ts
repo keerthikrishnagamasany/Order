@@ -38,6 +38,8 @@ export interface CapturedRequest {
   reasons: string[];
   /** Engagement label, when the request ran under an authorized security test. */
   authorizedTest?: string | undefined;
+  /** Where each signal fired (path, query, body, header, identity), when the capture records it. */
+  loci?: readonly string[] | undefined;
 }
 
 export type ProposalKind = "path" | "path_prefix" | "user_agent";
@@ -73,7 +75,7 @@ export function fromHar(har: unknown): CapturedRequest[] {
       startedDateTime?: string;
       request?: { method?: string; url?: string; headers?: { name: string; value: string }[] };
       response?: { status?: number };
-      _order?: { lane?: string; confidence?: string; reasons?: string[]; client?: string; authorizedTest?: string };
+      _order?: { lane?: string; confidence?: string; reasons?: string[]; client?: string; authorizedTest?: string; loci?: string[] };
     };
     if (!e.request?.url || !e._order?.lane) return;
     let path = "/";
@@ -97,6 +99,7 @@ export function fromHar(har: unknown): CapturedRequest[] {
       confidence: e._order.confidence ?? "GUESSING",
       reasons: e._order.reasons ?? [],
       authorizedTest: e._order.authorizedTest ?? testLabel(e._order.reasons ?? []),
+      ...(Array.isArray(e._order.loci) ? { loci: e._order.loci.filter((l): l is string => typeof l === "string") } : {}),
     });
   });
   return out;
@@ -113,11 +116,22 @@ export function uaToken(ua: string): string | null {
   return m ? (m[1] as string).toLowerCase() : null;
 }
 
+/**
+ * Which loci fired, from structured data only. Prefer `_order.loci` (written by ORDER since the
+ * audit fix); for older captures, parse only the engine-generated prefix `name:SEV(where=` of
+ * each reason. Never search the whole reason string: the excerpt after the prefix is
+ * attacker-controlled and could contain text like "(path=".
+ */
+const LOCUS = /^[A-Za-z0-9_]+:(?:HARD|SUSPECT|SOFT)\((path|query|body|header|identity)=/;
+function lociOf(r: CapturedRequest): string[] {
+  if (r.loci) return [...r.loci];
+  return r.reasons.map((x) => LOCUS.exec(x)?.[1]).filter((l): l is string => l !== undefined);
+}
+
 /** Did this request fire because of its payload (query/body) rather than its path? */
 function payloadOnly(r: CapturedRequest): boolean {
-  const payload = r.reasons.some((x) => x.includes("(query=") || x.includes("(body="));
-  const path = r.reasons.some((x) => x.includes("(path="));
-  return payload && !path;
+  const loci = lociOf(r);
+  return loci.some((l) => l === "query" || l === "body") && !loci.includes("path");
 }
 
 function matches(kind: ProposalKind, match: string, r: CapturedRequest): boolean {

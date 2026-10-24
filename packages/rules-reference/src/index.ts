@@ -22,7 +22,7 @@ interface Matcher {
 
 // --- paths only an attacker or scanner probes for --------------------------
 const HARD_PATHS =
-  /(^\/\.env$|^\/\.git(\/|$)|^\/wp-login|^\/wp-admin|^\/phpmyadmin|^\/actuator(\/|$)|^\/server-status$|\/config\.(json|ya?ml|php)$|\.sql$|\.bak$|\/id_rsa$)/i;
+  /(^\/\.env\/?$|^\/\.git(\/|$)|^\/wp-login|^\/wp-admin|^\/phpmyadmin|^\/actuator(\/|$)|^\/server-status\/?$|\/config\.(json|ya?ml|php)$|\.sql$|\.bak$|\/id_rsa$)/i;
 const SUSPECT_PATHS = /(^\/admin(\/|$)|^\/debug|^\/internal|^\/metrics$)/i;
 
 // --- payload shapes in query/body ------------------------------------------

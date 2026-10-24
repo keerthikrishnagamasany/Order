@@ -48,8 +48,18 @@ export interface DirectoryResolverOptions {
   maxTtlSec?: number;
   /** Failure cache lifetime. The draft says no more than five minutes. */
   negativeTtlSec?: number;
+  /**
+   * Most directories cached at once. Origins come from unauthenticated requests, so the cache
+   * is bounded: expired entries are dropped first, then the least recently used. Default 10,000.
+   */
+  maxEntries?: number;
+  /** Most directory fetches in flight at once. Beyond this, lookups fail fast as unverified. Default 32. */
+  maxConcurrent?: number;
   nowMs?: () => number;
 }
+
+/** "https://" + a DNS name (≤253) + ":65535". Longer origins are refused without any lookup. */
+const MAX_ORIGIN_LENGTH = 8 + 253 + 6;
 
 interface CacheEntry {
   expiresAt: number;
@@ -159,6 +169,7 @@ export function parseDirectory(body: string, maxKeys: number, nowSec: number): M
 export class HttpsDirectoryResolver implements KeyResolver {
   private readonly cache = new Map<string, CacheEntry>();
   private readonly inflight = new Map<string, Promise<CacheEntry>>();
+  private active = 0;
   private readonly transport: Transport;
   private readonly o: Required<Omit<DirectoryResolverOptions, "transport">>;
 
@@ -171,12 +182,14 @@ export class HttpsDirectoryResolver implements KeyResolver {
       defaultTtlSec: opts.defaultTtlSec ?? 3_600,
       maxTtlSec: opts.maxTtlSec ?? 86_400,
       negativeTtlSec: Math.min(opts.negativeTtlSec ?? 300, 300),
+      maxEntries: Math.max(1, opts.maxEntries ?? 10_000),
+      maxConcurrent: Math.max(1, opts.maxConcurrent ?? 32),
       nowMs: opts.nowMs ?? Date.now,
     };
   }
 
   async resolve(agentOrigin: string, keyid: string): Promise<JwkOkp | null> {
-    if (!isHttpsOrigin(agentOrigin)) return null;
+    if (agentOrigin.length > MAX_ORIGIN_LENGTH || !isHttpsOrigin(agentOrigin)) return null;
     const entry = await this.directory(agentOrigin);
     if (!entry.keys) throw new Error(entry.error ?? "directory unavailable");
     return entry.keys.get(keyid) ?? null;
@@ -185,28 +198,58 @@ export class HttpsDirectoryResolver implements KeyResolver {
   private async directory(origin: string): Promise<CacheEntry> {
     const now = this.o.nowMs();
     const hit = this.cache.get(origin);
-    if (hit && hit.expiresAt > now) return hit;
+    if (hit && hit.expiresAt > now) {
+      this.cache.delete(origin); // refresh LRU position
+      this.cache.set(origin, hit);
+      return hit;
+    }
 
     const running = this.inflight.get(origin);
     if (running) return running;
 
-    const p = this.fetchDirectory(origin).finally(() => this.inflight.delete(origin));
+    if (this.active >= this.o.maxConcurrent) throw new Error("directory fetch capacity exceeded");
+    this.active++;
+    const p = this.fetchDirectory(origin).finally(() => {
+      this.active--;
+      this.inflight.delete(origin);
+    });
     this.inflight.set(origin, p);
     return p;
+  }
+
+  /** Store an entry, keeping the cache within maxEntries: expired first, then least recently used. */
+  private remember(origin: string, entry: CacheEntry): void {
+    this.cache.delete(origin);
+    this.cache.set(origin, entry);
+    if (this.cache.size <= this.o.maxEntries) return;
+    const now = this.o.nowMs();
+    for (const [k, v] of this.cache) {
+      if (this.cache.size <= this.o.maxEntries) break;
+      if (v.expiresAt <= now) this.cache.delete(k);
+    }
+    for (const k of this.cache.keys()) {
+      if (this.cache.size <= this.o.maxEntries) break;
+      this.cache.delete(k);
+    }
+  }
+
+  /** Number of directories currently cached (bounded by maxEntries). */
+  get cachedOrigins(): number {
+    return this.cache.size;
   }
 
   private async fetchDirectory(origin: string): Promise<CacheEntry> {
     const now = this.o.nowMs();
     const fail = (error: string): CacheEntry => {
       const e: CacheEntry = { expiresAt: now + this.o.negativeTtlSec * 1000, keys: null, error };
-      this.cache.set(origin, e);
+      this.remember(origin, e);
       return e;
     };
     let res: TransportResponse;
     try {
       res = await this.transport(`${origin}${DIRECTORY_PATH}`, { timeoutMs: this.o.timeoutMs, maxBytes: this.o.maxBytes });
-    } catch (e) {
-      return fail(`fetch failed: ${(e as Error).message}`);
+    } catch {
+      return fail("fetch failed"); // fixed text: the transport message repeats the attacker's host
     }
     if (res.status !== 200) return fail(`status ${res.status} (only 200 is accepted; redirects are not followed)`);
     const mediaType = (res.headers["content-type"] ?? "").split(";")[0]?.trim().toLowerCase();
@@ -222,7 +265,7 @@ export class HttpsDirectoryResolver implements KeyResolver {
     const age = maxAge(res.headers["cache-control"]);
     const ttl = Math.min(age ?? this.o.defaultTtlSec, this.o.maxTtlSec);
     const entry: CacheEntry = { expiresAt: now + ttl * 1000, keys };
-    this.cache.set(origin, entry);
+    this.remember(origin, entry);
     return entry;
   }
 }

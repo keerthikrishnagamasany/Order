@@ -107,6 +107,15 @@ Canaries are minted only when serving a `decoy` response and recorded in the
 presents one back is therefore *provably* hostile — the only `CERTAIN` compromise marker
 in the system. This converts the decoy from a passive trap into a source of hard evidence.
 
+Tokens are self-verifying: `<prefix>_<8 hex issue time><16 hex HMAC>` under a registry secret.
+Detection recomputes the HMAC and checks the age against the TTL, so there is no table for decoy
+traffic to flush (an earlier store-backed design evicted the oldest canary after 100,000 mints).
+Instances that share a `secret` recognise each other's canaries; without one, minted tokens are
+also written to the state store so instances sharing Redis still agree. Detection scans the path,
+the full decoded query and body, the identity and the other header values (bounded), so a canary
+replayed as `Authorization: Bearer …` or in a cookie is caught. An implausible number of
+canary-shaped words raises `canary_scan_overflow` rather than hiding a real one.
+
 ## The rules seam
 
 `RulePack` is the extension point:
@@ -200,6 +209,8 @@ received, and the upstream response is streamed back. Hop-by-hop headers are str
 `x-order-lane`, `x-order-client` and `x-order-verified-agent`, after removing any copies the client
 sent, so the app can rely on them as long as it only accepts traffic from ORDER. Upstream
 failures return `502`, timeouts `504`. Real response bodies are never retained in the capture.
+Bodies with a non-identity `Content-Encoding` are refused with `415`: ORDER inspects the bytes it
+receives, so it can't forward a payload the app would decompress into something else.
 
 ## State
 
@@ -209,8 +220,9 @@ days). The in-memory store bounds each table (default 100,000 entries, oldest ev
 `RedisStateStore` uses fixed rate windows and Redis expiries, and takes a plain command function so
 it works with node-redis, ioredis or any client.
 
-Canary detection is O(candidates), not O(canaries): tokens have the shape `<prefix>_<24 hex>`, so
-the engine extracts up to 32 candidates from the request and looks each up.
+Canary detection is O(candidates), not O(canaries): candidate words of the shape `<prefix>_<24 hex>`
+are verified by HMAC (up to 1,024 per request, local and cheap) and, without a shared secret, looked
+up in the store (up to 32).
 
 `Engine.decide()` runs against a synchronous store with no I/O. `Engine.decideAsync()` runs the
 identical logic, written once and split around the two state accesses, against any store.

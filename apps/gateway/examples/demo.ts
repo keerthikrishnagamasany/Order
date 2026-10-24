@@ -43,7 +43,8 @@ const { server, recorder } = createGateway({
   authorizedTesters,
   // Demo only: lets the simulated actors below share one machine. Never in production.
   clientIdentity: { allowSimulatedClients: true },
-  botAuth: { resolver },
+  // Signatures only verify for the site names this deployment serves.
+  botAuth: { resolver, authorities: [`127.0.0.1:${PORT}`] },
   onDecision: (e) => log.push(e),
 });
 

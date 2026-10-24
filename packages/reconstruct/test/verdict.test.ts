@@ -27,3 +27,9 @@ test("a forged or replayed agent signature is reported, not called ordinary traf
   assert.ok(v?.hypotheses.some((h) => h.what.startsWith("Presented an agent signature that failed verification")));
   assert.equal(v?.hypotheses.some((h) => h.what === "Ordinary user traffic"), false);
 });
+
+test("review: attacker text inside an excerpt can't change a detector's severity", () => {
+  const [v] = buildVerdicts([e("scanner", "decoy", ["sensitive_path:SUSPECT(path='/admin/:HARD(')"])]);
+  assert.ok(v?.detectors.includes("sensitive_path:SUSPECT"));
+  assert.equal(v?.detectors.some((d) => d.endsWith(":HARD")), false);
+});

@@ -49,7 +49,7 @@ type ExpressResponse = ServerResponse & { locals?: Record<string, unknown> };
  * Express / Connect middleware.
  *
  *   app.use(express.json());
- *   app.use(orderExpress({ botAuth: { resolver: new HttpsDirectoryResolver() } }));
+ *   app.use(orderExpress({ botAuth: { resolver: new HttpsDirectoryResolver(), authorities: ["api.example.com"] } }));
  *   app.get("/api/items", (req, res) => res.json({ lane: res.locals.order.decision.lane }));
  *
  * Blocked and decoyed requests are answered here and never reach your routes. For the rest,

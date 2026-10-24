@@ -11,7 +11,7 @@
  */
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { HarRecorder, toHarEntry, type CanaryRegistry, type Engine, type HarRecorderOptions } from "@order/core";
+import { HarRecorder, type CanaryRegistry, type Engine, type HarRecorderOptions } from "@order/core";
 import { realSampleBody } from "./decoy.js";
 import { normaliseIp } from "./identity.js";
 import type { Metrics } from "./metrics.js";
@@ -29,8 +29,9 @@ export interface GatewayOptions extends OrderOptions {
   /** Largest request body accepted, in bytes. Larger requests get 413. Default 1 MiB. */
   maxBodyBytes?: number;
   /**
-   * Serve Prometheus metrics. By default only to loopback clients, so they aren't exposed
-   * to the internet; pass `allow` to change who may read them.
+   * Serve Prometheus metrics. By default only to loopback clients that are not configured
+   * trusted proxies, so they aren't exposed to the internet through a local reverse proxy;
+   * pass `allow` to change who may read them.
    */
   metrics?: { registry: Metrics; path?: string; allow?: (remoteAddress: string) => boolean };
   /** Called after every request — plug in your own logger here. */
@@ -85,6 +86,9 @@ export function createGateway(opts: GatewayOptions = {}): Gateway {
   const recorder = new HarRecorder(opts.capture === false ? {} : (opts.capture ?? {}));
   const maxBody = opts.maxBodyBytes ?? 1024 * 1024;
   const metricsPath = opts.metrics?.path ?? "/__order/metrics";
+  // A request from a trusted proxy is really from whoever the proxy relays: never "local".
+  const trustedPeers = new Set((opts.clientIdentity?.trustedProxies ?? []).map(normaliseIp));
+  const defaultMetricsAllow = (peer: string) => isLoopback(peer) && !trustedPeers.has(normaliseIp(peer));
 
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     handle(req, res).catch(() => {
@@ -102,7 +106,7 @@ export function createGateway(opts: GatewayOptions = {}): Gateway {
     const url = new URL(rawUrl, `http://${req.headers.host ?? "localhost"}`);
 
     if (opts.metrics && req.method === "GET" && url.pathname === metricsPath) {
-      const allow = opts.metrics.allow ?? isLoopback;
+      const allow = opts.metrics.allow ?? defaultMetricsAllow;
       if (allow(req.socket.remoteAddress ?? "")) {
         res.writeHead(200, { "content-type": "text/plain; version=0.0.4" });
         res.end(opts.metrics.registry.render());
@@ -120,6 +124,14 @@ export function createGateway(opts: GatewayOptions = {}): Gateway {
         return;
       }
       bodyBuf = read.buf;
+    }
+    // ORDER inspects the bytes it receives. A compressed body would be inspected as noise and
+    // then decompressed by the app, so non-identity content codings are refused, not forwarded.
+    const coding = String(req.headers["content-encoding"] ?? "").trim().toLowerCase();
+    if (bodyBuf.length > 0 && coding !== "" && coding !== "identity") {
+      res.writeHead(415, { "content-type": "application/json", connection: "close" });
+      res.end(JSON.stringify({ error: "unsupported content-encoding" }));
+      return;
     }
     const body = bodyBuf.toString("utf8");
 
@@ -147,8 +159,7 @@ export function createGateway(opts: GatewayOptions = {}): Gateway {
 
     if (opts.capture !== false) {
       const waitedMs = Number(process.hrtime.bigint() - t0) / 1e6;
-      recorder.add(
-        toHarEntry({
+      recorder.record({
           startedISO,
           waitedMs: Math.round(waitedMs * 1000) / 1000,
           method: req.method ?? "GET",
@@ -159,8 +170,7 @@ export function createGateway(opts: GatewayOptions = {}): Gateway {
           respBody: respText,
           decision,
           clientId,
-        }),
-      );
+      });
     }
 
     const line: DecisionLogLine = {

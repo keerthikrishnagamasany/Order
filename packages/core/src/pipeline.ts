@@ -16,7 +16,7 @@
  */
 
 import { CanaryRegistry } from "./canary.js";
-import { normalise } from "./normalise.js";
+import { DEFAULT_INSPECTION_LIMIT, normalisePath, normaliseWithInfo } from "./normalise.js";
 import { DEFAULT_SCORING, type ScoringConfig } from "./scoring.js";
 import { isPromise, MemoryStateStore, type StateStore } from "./state.js";
 import type { AuthorizedTester, Decision, Lane, RequestFacts, RulePack, Severity, Signal } from "./types.js";
@@ -33,7 +33,15 @@ export interface RawRequest {
   verifiedAgent?: string | undefined;
   /** Signals raised outside the rule pack, e.g. a forged agent signature. */
   extraSignals?: readonly Signal[] | undefined;
+  /**
+   * Other client-supplied text a stolen canary could be replayed in: credential headers such as
+   * Authorization and Cookie, or all header values. Scanned for canaries only (bounded).
+   */
+  credentials?: string | undefined;
 }
+
+/** Longest `credentials` text scanned for canaries. */
+const MAX_CREDENTIAL_SCAN = 16 * 1024;
 
 export interface EngineConfig {
   readonly rules: RulePack;
@@ -50,6 +58,11 @@ export interface EngineConfig {
   readonly state?: StateStore;
   /** Clock, injectable for tests. */
   readonly now?: () => number;
+  /**
+   * Characters of decoded query and of decoded body that detectors inspect. Input longer than
+   * this raises a SUSPECT `oversize_input` signal instead of passing as clean. Default 1 MiB.
+   */
+  readonly inspectionLimit?: number;
 }
 
 function worst(signals: readonly Signal[]): Severity | null {
@@ -58,6 +71,9 @@ function worst(signals: readonly Signal[]): Severity | null {
   for (const s of signals) if (best === null || rank[s.severity] > rank[best]) best = s.severity;
   return best;
 }
+
+/** Too many canary-shaped words to check them all: a padding attempt to hide a replayed canary. */
+const OVERFLOW: Signal = { name: "canary_scan_overflow", severity: "SUSPECT", where: "header", excerpt: "too many canary-shaped tokens" };
 
 /** Result of the stateless part: either a final decision, or "needs scoring". */
 type Pending =
@@ -87,21 +103,32 @@ export class Engine {
     }
   }
 
-  private factsOf(req: RawRequest): RequestFacts {
+  /**
+   * Decoded facts for detectors, the text scanned for canaries, and engine-level signals.
+   * The path is percent-decoded so `/%2eenv` matches the same rules as `/.env`. Input past the
+   * inspection limit is flagged rather than silently treated as clean.
+   */
+  private factsOf(req: RawRequest): { facts: RequestFacts; canaryText: string; engineSignals: Signal[] } {
+    const limit = this.cfg.inspectionLimit ?? DEFAULT_INSPECTION_LIMIT;
+    const q = normaliseWithInfo(req.query, limit);
+    const b = normaliseWithInfo(req.body, limit);
+    const path = normalisePath(req.path);
+    const engineSignals: Signal[] = [];
+    if (q.truncated) engineSignals.push({ name: "oversize_input", severity: "SUSPECT", where: "query", excerpt: `${q.full.length} chars > ${limit}` });
+    if (b.truncated) engineSignals.push({ name: "oversize_input", severity: "SUSPECT", where: "body", excerpt: `${b.full.length} chars > ${limit}` });
+    const creds = (req.credentials ?? "").slice(0, MAX_CREDENTIAL_SCAN);
+    // Credential-bearing text first, so padding elsewhere can't push a replayed key out of the scan.
+    const canaryText = `${req.identity ?? ""} ${creds} ${path} ${q.full} ${b.full}`;
     return {
-      method: req.method,
-      path: req.path,
-      query: normalise(req.query),
-      body: normalise(req.body),
-      userAgent: req.userAgent ?? "",
-      identity: req.identity,
-      clientId: req.clientId,
+      facts: { method: req.method, path, query: q.text, body: b.text, userAgent: req.userAgent ?? "", identity: req.identity, clientId: req.clientId },
+      canaryText,
+      engineSignals,
     };
   }
 
   /** Everything up to the rate/score step. `canaryOrigin` is the result of the lookup. */
-  private before(req: RawRequest, facts: RequestFacts, canaryOrigin: string | null): Pending {
-    const signals = [...this.cfg.rules.inspect(facts), ...(req.extraSignals ?? [])];
+  private before(req: RawRequest, facts: RequestFacts, canaryOrigin: string | null, engineSignals: readonly Signal[] = []): Pending {
+    const signals = [...this.cfg.rules.inspect(facts), ...engineSignals, ...(req.extraSignals ?? [])];
     const reasons = signals.map((s) => `${s.name}:${s.severity}(${s.where}='${s.excerpt}')`);
 
     if (canaryOrigin !== null) {
@@ -142,16 +169,20 @@ export class Engine {
   }
 
   /**
-   * The active engagement for this trusted client, or undefined. A tester entry is keyed
-   * by the presented identity or by `agent:<origin>`. An expired or out-of-scope entry
-   * leaves a reason in the log and falls back to normal trusted handling.
+   * The active engagement for this trusted client, or undefined. An entry applies only to the
+   * principal that earned trust: an identity key only when that identity is allowlisted (and is
+   * not in the reserved `agent:` namespace), an `agent:<origin>` key only for the verified agent
+   * with that exact origin. An expired or out-of-scope entry leaves a reason in the log and
+   * falls back to normal trusted handling.
    */
   private authorizedTest(req: RawRequest, path: string, reasons: string[]): string | undefined {
     const testers = this.cfg.authorizedTesters;
     if (!testers || testers.size === 0) return undefined;
-    const t =
-      (req.identity !== undefined ? testers.get(req.identity) : undefined) ??
-      (req.verifiedAgent !== undefined ? testers.get(`agent:${req.verifiedAgent}`) : undefined);
+    const byIdentity =
+      req.identity !== undefined && !req.identity.startsWith("agent:") && this.cfg.allowlist.has(req.identity)
+        ? testers.get(req.identity)
+        : undefined;
+    const t = byIdentity ?? (req.verifiedAgent !== undefined ? testers.get(`agent:${req.verifiedAgent}`) : undefined);
     if (!t) return undefined;
     if (this.now() >= t.expiresAt) {
       reasons.push(`authorized_test_expired:${t.label}`);
@@ -170,9 +201,10 @@ export class Engine {
 
   /** Synchronous decision. Requires a synchronous state store (the default). */
   decide(req: RawRequest): Decision {
-    const facts = this.factsOf(req);
-    const hit = this.cfg.canaries.detect(`${facts.query} ${facts.body} ${facts.identity ?? ""}`);
-    const p = this.before(req, facts, hit?.origin ?? null);
+    const { facts, canaryText, engineSignals } = this.factsOf(req);
+    const scan = this.cfg.canaries.scan(canaryText);
+    if (scan.overflow) engineSignals.push(OVERFLOW);
+    const p = this.before(req, facts, scan.hit?.origin ?? null, engineSignals);
     if (p.done) return p.done;
 
     const now = this.now();
@@ -186,9 +218,10 @@ export class Engine {
 
   /** Decision against any state store, including shared asynchronous ones like Redis. */
   async decideAsync(req: RawRequest): Promise<Decision> {
-    const facts = this.factsOf(req);
-    const hit = await this.cfg.canaries.detectAsync(`${facts.query} ${facts.body} ${facts.identity ?? ""}`);
-    const p = this.before(req, facts, hit?.origin ?? null);
+    const { facts, canaryText, engineSignals } = this.factsOf(req);
+    const scan = await this.cfg.canaries.scanAsync(canaryText);
+    if (scan.overflow) engineSignals.push(OVERFLOW);
+    const p = this.before(req, facts, scan.hit?.origin ?? null, engineSignals);
     if (p.done) return p.done;
 
     const now = this.now();

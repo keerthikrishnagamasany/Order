@@ -71,7 +71,7 @@ test("Web Bot Auth: a signed agent is trusted, a forged one is decoyed, over rea
   const log: DecisionLogLine[] = [];
   const gw = createGateway({
     clientIdentity: { allowSimulatedClients: true },
-    botAuth: { resolver: new StaticKeyResolver().add(agentUrl, jwk) },
+    botAuth: { resolver: new StaticKeyResolver().add(agentUrl, jwk), authorities: (a: string) => a.startsWith("127.0.0.1:") },
     onDecision: (e) => log.push(e),
   });
   await new Promise<void>((r) => gw.server.listen(0, r));

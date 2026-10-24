@@ -79,7 +79,7 @@ async function run(rules: RulePack): Promise<Map<string, Outcome>> {
     rules,
     upstream: { url: appUrl, timeoutMs: 2000 },
     allowlist: new Map([["mcp_live_partner_swift_7f3a", "partner-swift"]]),
-    botAuth: { resolver },
+    botAuth: { resolver, authorities: (a: string) => a.startsWith("127.0.0.1:") },
     // Evaluation only: lets the labelled actors share one machine. Never in production.
     clientIdentity: { allowSimulatedClients: true },
     capture: false,

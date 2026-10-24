@@ -4,6 +4,40 @@ ORDER is created and maintained by Keerthi Krishna Gamasany.
 
 ## Unreleased
 
+### Security (audit, see SECURITY-AUDIT.md)
+
+Fixes for every issue confirmed by an audit with Cloudflare's `security-audit` method. Each
+fix has a regression test in `apps/gateway/test/audit-regressions.test.ts`.
+
+- **High:** capture memory now has a byte budget (`capture.maxBytes`, 64 MiB) and a
+  per-entry text cap, and request bodies are not stored by default.
+- Captures keep header values only for an allowlist of headers, strip URL credentials
+  (`user:pass@`), and drop query values and bodies unless you opt in.
+- Compressed request bodies get `415` in the standalone gateway.
+- Lenient percent-decoding: one malformed escape no longer disables decoding.
+- Paths are percent-decoded and their dot segments resolved before rules match them
+  (`/%2eenv`, `/x/..%2f.env`).
+- The whole decoded query and body are inspected, up to `inspectionLimit` (1 MiB, the same as
+  the body cap). Anything longer raises `oversize_input`.
+- Web Bot Auth requires `botAuth.authorities`, which binds signatures to the host names this
+  deployment serves.
+- Authorized-test entries are bound to the principal that earned trust.
+- Canaries are self-verifying (HMAC), so decoy traffic can't evict them. Detection covers the
+  path and the header values, and padding raises `canary_scan_overflow`. `canary.secret`
+  shares canaries across instances.
+- The key-directory cache is bounded (LRU), concurrent fetches are capped, and over-long
+  origins are refused.
+- The metrics gate refuses trusted-proxy peers by default.
+- Rule synthesis reads each signal's location from structured capture data (`_order.loci`).
+
+**Cost:** the fuller inspection and canary verification take about 1 µs more per decision (the
+`pnpm bench` median went from 2.8 µs to 4.1 µs, about 168,000 decisions/sec on the same 2-vCPU VM),
+with no measurable effect on HTTP throughput.
+
+**Breaking changes:** `botAuth.authorities` is required; capture contents are minimised by
+default; compressed bodies get `415`.
+
+
 - **Security: proxy request forgery (SSRF), found by CodeQL.** In reverse-proxy mode, a client
   could send an absolute-form (`GET http://other-host/…`) or protocol-relative (`GET //other-host/…`)
   request-target and the gateway would forward it to that host instead of the configured

@@ -11,8 +11,8 @@ export type {
   AuthorizedTester,
   ClientState,
 } from "./types.js";
-export { normalise, urlDecodeDeep } from "./normalise.js";
-export { CanaryRegistry, canaryCandidates, type Canary, type CanaryOptions } from "./canary.js";
+export { normalise, normaliseWithInfo, normalisePath, urlDecodeDeep, DEFAULT_INSPECTION_LIMIT, type Normalised } from "./normalise.js";
+export { CanaryRegistry, canaryCandidates, type Canary, type CanaryOptions, type CanaryScan } from "./canary.js";
 export { DEFAULT_SCORING, type ScoringConfig } from "./scoring.js";
 export {
   MemoryStateStore,
@@ -29,6 +29,9 @@ export { combine } from "./combine.js";
 export {
   HarRecorder,
   toHarEntry,
+  REDACTED_HEADERS,
+  KEPT_HEADERS,
+  type CapturePolicy,
   type HarEntry,
   type HarRecorderOptions,
   type CaptureInput,

@@ -35,6 +35,8 @@ export interface ClientVerdict {
   recommendedRules: string[];
 }
 
+const SIGNAL_PREFIX = /^([A-Za-z0-9_]+):(HARD|SUSPECT|SOFT)\(/;
+
 function has(detectors: Set<string>, pred: (d: string) => boolean): boolean {
   for (const d of detectors) if (pred(d)) return true;
   return false;
@@ -136,8 +138,9 @@ export function buildVerdicts(log: DecisionLogEntry[], skip: Set<string> = new S
     c.lanes.add(e.lane);
     c.n += 1;
     for (const r of e.reasons) {
-      if (r.includes(":HARD(")) c.detectors.add(`${r.split(":")[0]}:HARD`);
-      else if (r.includes(":SUSPECT(")) c.detectors.add(`${r.split(":")[0]}:SUSPECT`);
+      // Parse only the engine-generated prefix `name:SEV(`. The excerpt after it is attacker text.
+      const m = SIGNAL_PREFIX.exec(r);
+      if (m) c.detectors.add(`${m[1]}:${m[2]}`);
       else if (r.startsWith("authorized_test")) c.detectors.add(r);
       else if (r.startsWith("canary_replayed") || r.startsWith("trusted_key_hard_signal")) {
         c.detectors.add(r.split("(")[0] as string);

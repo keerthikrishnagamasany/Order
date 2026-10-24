@@ -25,6 +25,13 @@ detection belongs in a private rule pack (see [ARCHITECTURE.md](ARCHITECTURE.md)
 
 ORDER processes hostile input by definition. Two rules the codebase holds to:
 
-- Detectors run on **normalised** (URL-decoded) input, bounded in length, with null bytes
-  stripped.
-- Logged excerpts are truncated and never include full payloads or secrets.
+- Detectors run on **normalised** input: the path, query and body are percent-decoded leniently
+  (one malformed escape never switches decoding off), null bytes are stripped, and input past the
+  inspection limit is flagged rather than treated as clean.
+- Logged excerpts are truncated. Captures redact credential headers and drop query values and
+  request bodies by default.
+
+## Audits
+
+- **2026-10: Cloudflare `security-audit` method, quick profile.** 12 confirmed issues and 1 lead,
+  all fixed with regression tests. See [SECURITY-AUDIT.md](SECURITY-AUDIT.md).
