@@ -25,6 +25,12 @@ ORDER is created and maintained by Keerthi Krishna Gamasany.
 - Test: an approved learned rule is enforced by a running gateway, an unapproved one is not,
   and unrelated legitimate traffic still reaches the app.
 
+- **Path-family learned rules.** `synthesizeRules()` also proposes the directory a probed
+  path lives in (`path_prefix`), when two or more hostile clients support it, it keeps at
+  least two segments, and no benign request in the capture falls under it. Families are
+  always `GUESSING` and compile to `SUSPECT`, so they divert to the decoy and never block.
+  On the held-out set: 8/12 caught becomes 9/12, with no new false positives.
+
 ## 0.4.0
 
 Make ORDER deployable and installable.

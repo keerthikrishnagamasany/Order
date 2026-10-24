@@ -53,6 +53,7 @@ const baseline = JSON.parse(readFileSync(new URL("baseline.har", here), "utf8"))
 const proposals = synthesizeRules(fromHar(baseline), { existing: referenceRules });
 const approved = proposals.map((p) => ({ ...p, approved: p.status === "proposed" && !p.redundant }));
 const learned = compileRules(approved);
+const learnedExact = compileRules(approved.filter((p) => p.kind !== "path_prefix"));
 const approvedList = approved.filter((p) => p.approved);
 
 // ---- 3: enforce through a running gateway -------------------------------------------------
@@ -111,6 +112,7 @@ async function run(rules: RulePack): Promise<Map<string, Outcome>> {
 }
 
 const base = await run(referenceRules);
+const withExact = await run(combine(referenceRules, learnedExact));
 const withLearned = await run(combine(referenceRules, learned));
 
 // ---- 4: score -----------------------------------------------------------------------------
@@ -122,6 +124,7 @@ function score(o: Map<string, Outcome>) {
   return { mal: mal.length, ben: ben.length, caught, missed: mal.length - caught, fp };
 }
 const sb = score(base);
+const se = score(withExact);
 const sl = score(withLearned);
 const correct = (r: Labelled, o: Outcome) => (r.label === "malicious" ? !o.reachedApp : o.reachedApp);
 const changed = holdout.filter((r) => base.get(r.id)!.lane !== withLearned.get(r.id)!.lane);
@@ -135,7 +138,9 @@ md.push(`\`holdout.json\`: ${holdout.length} labelled requests (${sb.ben} benign
 md.push("sent through a running gateway in front of a real app. A malicious request is **caught** if it");
 md.push("never reaches the app. A benign request is a **false positive** if it doesn't reach the app.", "");
 md.push("This is a small, hand-labelled set. It shows behaviour and failure cases; it is not a");
-md.push("statistical accuracy claim.", "");
+md.push("statistical accuracy claim. The same person wrote the rule learner and this set, and path");
+md.push("families were designed after this set existed, so read their row with that in mind; see");
+md.push("benchmarks/README.md.", "");
 md.push("## Rules approved for this run", "");
 md.push("Stand-in for human review: approve every proposal that was not rejected and is not already");
 md.push("covered by the built-in rules.", "");
@@ -145,7 +150,8 @@ md.push("", "## Results", "");
 md.push("| Rules | Malicious caught | Missed | Benign wrongly stopped |");
 md.push("|---|---|---|---|");
 md.push(`| Built-in only | ${sb.caught}/${sb.mal} (${pct(sb.caught, sb.mal)}) | ${sb.missed} | ${sb.fp}/${sb.ben} (${pct(sb.fp, sb.ben)}) |`);
-md.push(`| Built-in + learned | ${sl.caught}/${sl.mal} (${pct(sl.caught, sl.mal)}) | ${sl.missed} | ${sl.fp}/${sl.ben} (${pct(sl.fp, sl.ben)}) |`);
+md.push(`| Built-in + learned exact paths | ${se.caught}/${se.mal} (${pct(se.caught, se.mal)}) | ${se.missed} | ${se.fp}/${se.ben} (${pct(se.fp, se.ben)}) |`);
+md.push(`| Built-in + learned exact paths + path families | ${sl.caught}/${sl.mal} (${pct(sl.caught, sl.mal)}) | ${sl.missed} | ${sl.fp}/${sl.ben} (${pct(sl.fp, sl.ben)}) |`);
 md.push("", `Requests whose outcome the learned rules changed: ${changed.length === 0 ? "none" : changed.map((r) => `\`${r.id}\``).join(", ")}.`, "");
 md.push("## Every request", "");
 md.push("| id | label | what it is | built-in | + learned | correct |");
@@ -162,5 +168,6 @@ console.log(`learned from baseline.har: ${approvedList.map((p) => `${p.kind} ${p
 console.log(`held-out set: ${sb.ben} benign, ${sb.mal} malicious\n`);
 console.log("rules                 caught        missed   benign wrongly stopped");
 console.log(`built-in only         ${`${sb.caught}/${sb.mal}`.padEnd(13)} ${String(sb.missed).padEnd(8)} ${sb.fp}/${sb.ben}`);
-console.log(`built-in + learned    ${`${sl.caught}/${sl.mal}`.padEnd(13)} ${String(sl.missed).padEnd(8)} ${sl.fp}/${sl.ben}`);
+console.log(`+ learned exact       ${`${se.caught}/${se.mal}`.padEnd(13)} ${String(se.missed).padEnd(8)} ${se.fp}/${se.ben}`);
+console.log(`+ exact + families    ${`${sl.caught}/${sl.mal}`.padEnd(13)} ${String(sl.missed).padEnd(8)} ${sl.fp}/${sl.ben}`);
 console.log("\nwrote benchmarks/RESULTS.md");

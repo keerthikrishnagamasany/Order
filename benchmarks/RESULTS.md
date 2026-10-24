@@ -8,7 +8,9 @@ sent through a running gateway in front of a real app. A malicious request is **
 never reaches the app. A benign request is a **false positive** if it doesn't reach the app.
 
 This is a small, hand-labelled set. It shows behaviour and failure cases; it is not a
-statistical accuracy claim.
+statistical accuracy claim. The same person wrote the rule learner and this set, and path
+families were designed after this set existed, so read their row with that in mind; see
+benchmarks/README.md.
 
 ## Rules approved for this run
 
@@ -16,15 +18,17 @@ Stand-in for human review: approve every proposal that was not rejected and is n
 covered by the built-in rules.
 
 - `path /wp-json/wp/v2/users`: SUSPECT, LIKELY, 2 clients, 0 false positives in training
+- `path_prefix /wp-json/wp/v2/`: SUSPECT, GUESSING, 2 clients, 0 false positives in training
 
 ## Results
 
 | Rules | Malicious caught | Missed | Benign wrongly stopped |
 |---|---|---|---|
 | Built-in only | 7/12 (58%) | 5 | 2/12 (17%) |
-| Built-in + learned | 8/12 (67%) | 4 | 2/12 (17%) |
+| Built-in + learned exact paths | 8/12 (67%) | 4 | 2/12 (17%) |
+| Built-in + learned exact paths + path families | 9/12 (75%) | 3 | 2/12 (17%) |
 
-Requests whose outcome the learned rules changed: `m01`.
+Requests whose outcome the learned rules changed: `m01`, `m03`.
 
 ## Every request
 
@@ -44,7 +48,7 @@ Requests whose outcome the learned rules changed: `m01`.
 | b12 | benign | customer asking the assistant about return instructions | normal | normal | yes |
 | m01 | malicious | learned path, scanner disguised as a browser | normal | decoy (learned rule) | yes |
 | m02 | malicious | learned path, generic Go client | decoy | decoy (learned rule) | yes |
-| m03 | malicious | related path the learned rule never saw | normal | normal | **no** |
+| m03 | malicious | related path the learned rule never saw | normal | decoy (learned rule) | yes |
 | m04 | malicious | source-control probe | blocked | blocked | yes |
 | m05 | malicious | database admin panel probe | blocked | blocked | yes |
 | m06 | malicious | cloud credentials file probe | normal | normal | **no** |

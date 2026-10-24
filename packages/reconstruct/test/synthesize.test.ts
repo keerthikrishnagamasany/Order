@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { RulePack } from "@order/core";
-import { compileRules, fromHar, synthesizeRules, uaToken, type CapturedRequest } from "../src/synthesize.js";
+import { compileRules, fromHar, pathFamily, synthesizeRules, uaToken, type CapturedRequest } from "../src/synthesize.js";
 
 let n = 0;
 function req(p: Partial<CapturedRequest>): CapturedRequest {
@@ -137,4 +137,42 @@ test("fromHar reads the authorized-test label from _order or from reasons", () =
     },
   };
   assert.deepEqual(fromHar(har).map((r) => r.authorizedTest), ["T1", "T2", undefined]);
+});
+
+test("pathFamily keeps at least two segments", () => {
+  assert.equal(pathFamily("/wp-json/wp/v2/users"), "/wp-json/wp/v2/");
+  assert.equal(pathFamily("/a/b/c"), "/a/b/");
+  assert.equal(pathFamily("/a/b"), null);
+  assert.equal(pathFamily("/admin"), null);
+});
+
+test("a path family is proposed as a guess that diverts, never blocks", () => {
+  const p = synthesizeRules(capture).find((x) => x.id === "path_prefix:/wp-json/wp/v2/");
+  assert.equal(p?.status, "proposed");
+  assert.equal(p?.confidence, "GUESSING");
+  assert.equal(p?.severity, "SUSPECT");
+  const pack = compileRules([{ ...p!, approved: true }]);
+  const f = { method: "GET", query: "", body: "", userAgent: "Mozilla/5.0", clientId: "z" };
+  assert.deepEqual(pack.inspect({ ...f, path: "/wp-json/wp/v2/settings" }).map((s) => [s.name, s.severity]), [["learned_path_family", "SUSPECT"]]);
+  // look-alikes outside the family are untouched
+  assert.equal(pack.inspect({ ...f, path: "/blog/securing-wp-json" }).length, 0);
+  assert.equal(pack.inspect({ ...f, path: "/wp-json/wp/v2" }).length, 0);
+  // even a hand-edited HARD family compiles to SUSPECT
+  const hard = compileRules([{ ...p!, severity: "HARD", approved: true }]);
+  assert.equal(hard.inspect({ ...f, path: "/wp-json/wp/v2/x" })[0]?.severity, "SUSPECT");
+});
+
+test("a family with any benign traffic under it is rejected", () => {
+  const withBenign = [...capture, req({ client: "user", path: "/wp-json/wp/v2/posts" })];
+  const p = synthesizeRules(withBenign).find((x) => x.id === "path_prefix:/wp-json/wp/v2/");
+  assert.equal(p?.status, "rejected");
+  // the exact-path rule is unaffected
+  assert.equal(synthesizeRules(withBenign).find((x) => x.id === "path:/wp-json/wp/v2/users")?.status, "proposed");
+});
+
+test("a family needs at least two hostile clients", () => {
+  const one = [req({ client: "solo", path: "/x/y/z", lane: "decoy", reasons: ["score=3"] })];
+  const p = synthesizeRules(one).find((x) => x.kind === "path_prefix");
+  assert.equal(p?.status, "rejected");
+  assert.match(p?.reason ?? "", /2 hostile clients/);
 });

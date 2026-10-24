@@ -16,6 +16,10 @@
  *   - Authorized tests are excluded. A hired tester's probes are neither attack evidence
  *     nor legitimate traffic, so they can neither propose nor veto a rule.
  *   - Honest confidence. Synthesised rules top out at LIKELY; nothing learned is CERTAIN.
+ *   - Generalise cautiously. A path-family rule (the directory a probed path lives in) is
+ *     a guess beyond the evidence: it is always GUESSING and SUSPECT, so it can divert a
+ *     request to the decoy but never block one. It needs two or more hostile clients, at
+ *     least two path segments, and NO benign request anywhere under the family.
  */
 
 import type { RequestFacts, RulePack, Signal } from "@order/core";
@@ -36,12 +40,12 @@ export interface CapturedRequest {
   authorizedTest?: string | undefined;
 }
 
-export type ProposalKind = "path" | "user_agent";
+export type ProposalKind = "path" | "path_prefix" | "user_agent";
 
 export interface RuleProposal {
   id: string;
   kind: ProposalKind;
-  /** Exact path (case-insensitive) or user-agent product token. */
+  /** Exact path, path-family prefix ending in "/" (both case-insensitive), or user-agent product token. */
   match: string;
   severity: "HARD" | "SUSPECT";
   confidence: "LIKELY" | "GUESSING";
@@ -117,14 +121,26 @@ function payloadOnly(r: CapturedRequest): boolean {
 }
 
 function matches(kind: ProposalKind, match: string, r: CapturedRequest): boolean {
-  return kind === "path" ? r.path.toLowerCase() === match : uaToken(r.userAgent) === match;
+  if (kind === "path") return r.path.toLowerCase() === match;
+  if (kind === "path_prefix") return r.path.toLowerCase().startsWith(match);
+  return uaToken(r.userAgent) === match;
+}
+
+/** Minimum number of segments a path-family prefix must keep: "/a/b/" is the shortest allowed. */
+const MIN_FAMILY_SEGMENTS = 2;
+
+/** The family a path belongs to: its parent directory, e.g. "/wp-json/wp/v2/users" -> "/wp-json/wp/v2/". */
+export function pathFamily(path: string): string | null {
+  const segs = path.toLowerCase().split("/").filter(Boolean);
+  if (segs.length - 1 < MIN_FAMILY_SEGMENTS) return null;
+  return `/${segs.slice(0, -1).join("/")}/`;
 }
 
 function alreadyCaught(kind: ProposalKind, match: string, existing: RulePack | undefined): boolean {
   if (!existing) return false;
   const facts: RequestFacts = {
     method: "GET",
-    path: kind === "path" ? match : "/",
+    path: kind === "path" ? match : kind === "path_prefix" ? `${match}x` : "/",
     query: "",
     body: "",
     userAgent: kind === "user_agent" ? `${match}/1.0` : "",
@@ -151,6 +167,8 @@ export function synthesizeRules(reqs: CapturedRequest[], opts: SynthesizeOptions
     if (!payloadOnly(r)) {
       const p = r.path.toLowerCase();
       candidates.set(`path:${p}`, { kind: "path", match: p });
+      const fam = pathFamily(r.path);
+      if (fam) candidates.set(`path_prefix:${fam}`, { kind: "path_prefix", match: fam });
     }
     const tok = uaToken(r.userAgent);
     if (tok && !GENERIC_UA.has(tok)) candidates.set(`user_agent:${tok}`, { kind: "user_agent", match: tok });
@@ -158,30 +176,36 @@ export function synthesizeRules(reqs: CapturedRequest[], opts: SynthesizeOptions
 
   const proposals: RuleProposal[] = [];
   for (const { kind, match } of candidates.values()) {
-    const sup = hostile.filter((r) => matches(kind, match, r) && !(kind === "path" && payloadOnly(r)));
+    const sup = hostile.filter((r) => matches(kind, match, r) && !(kind !== "user_agent" && payloadOnly(r)));
     const fp = benign.filter((r) => matches(kind, match, r));
     const clients = new Set(sup.map((r) => r.client)).size;
     const allBlocked = sup.every((r) => r.lane === "blocked");
 
     const fpLanes = [...new Set(fp.map((r) => r.lane))].join("/");
-    const rejected = fp.length > 0;
+    const family = kind === "path_prefix";
+    // A family is only worth proposing when several clients support it.
+    const rejected = fp.length > 0 || (family && clients < 2);
     const redundant = alreadyCaught(kind, match, opts.existing);
 
     proposals.push({
       id: `${kind}:${match}`,
       kind,
       match,
-      severity: allBlocked && clients >= 2 ? "HARD" : "SUSPECT",
-      confidence: clients >= 2 ? "LIKELY" : "GUESSING",
+      severity: !family && allBlocked && clients >= 2 ? "HARD" : "SUSPECT",
+      confidence: !family && clients >= 2 ? "LIKELY" : "GUESSING",
       support: { hits: sup.length, clients, ordinals: sup.map((r) => r.ordinal) },
       falsePositives: { hits: fp.length, ordinals: fp.map((r) => r.ordinal) },
       redundant,
       status: rejected ? "rejected" : "proposed",
-      reason: rejected
+      reason: fp.length > 0
         ? `would also match ${fp.length} ${fpLanes} request(s) in this capture`
+        : rejected
+          ? "a path family needs at least 2 hostile clients"
         : redundant
           ? "seen only from hostile clients, but the current pack already catches it"
-          : `seen only from hostile clients (${clients} client${clients === 1 ? "" : "s"}); no benign match in this capture`,
+          : family
+            ? `generalised from ${new Set(sup.map((r) => r.path.toLowerCase())).size} probed path(s) by ${clients} clients; nothing benign under it in this capture. A guess: diverts, never blocks`
+            : `seen only from hostile clients (${clients} client${clients === 1 ? "" : "s"}); no benign match in this capture`,
       approved: false,
     });
   }
@@ -200,12 +224,19 @@ export function compileRules(proposals: readonly RuleProposal[], id = "learned")
   const active = proposals.filter((p) => p.approved && p.status === "proposed");
   const paths = new Map(active.filter((p) => p.kind === "path").map((p) => [p.match, p]));
   const uas = new Map(active.filter((p) => p.kind === "user_agent").map((p) => [p.match, p]));
+  // Families never block, whatever a proposal says: a generalised rule is a guess.
+  const families = active.filter((p) => p.kind === "path_prefix").sort((a, b) => b.match.length - a.match.length);
   return {
     id: `${id}@${active.length}`,
     inspect(facts: RequestFacts): Signal[] {
       const out: Signal[] = [];
       const p = paths.get(facts.path.toLowerCase());
       if (p) out.push({ name: "learned_path", severity: p.severity, where: "path", excerpt: facts.path.slice(0, 80) });
+      else {
+        const lower = facts.path.toLowerCase();
+        const f = families.find((x) => lower.startsWith(x.match));
+        if (f) out.push({ name: "learned_path_family", severity: "SUSPECT", where: "path", excerpt: facts.path.slice(0, 80) });
+      }
       const tok = uaToken(facts.userAgent);
       const u = tok ? uas.get(tok) : undefined;
       if (u) out.push({ name: "learned_user_agent", severity: u.severity, where: "header", excerpt: tok as string });

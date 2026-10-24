@@ -164,14 +164,24 @@ const rules = combine(referenceRules, compileRules(proposals));
 Each proposal carries the capture entries behind it, a confidence label, and a false-positive check. From the demo capture:
 
 ```
-proposed user_agent:curl          LIKELY   redundant - seen only from hostile clients, but the current pack already catches it
-proposed path:/.env               GUESSING redundant - seen only from hostile clients, but the current pack already catches it
-...
-rejected path:/api/v1/products    GUESSING - would also match 2 normal/trusted request(s) in this capture
-rejected user_agent:agent         GUESSING - would also match 1 trusted request(s) in this capture
+NEW       path /wp-json/wp/v2/users          LIKELY    2 clients, 0 false positives
+NEW       path_prefix /wp-json/wp/v2/        GUESSING  2 clients, 0 false positives
+REJECTED  path /api/v1/products              would also match 2 normal/trusted request(s) in this capture
+REJECTED  path_prefix /api/v1/               would also match 4 normal/trusted request(s) in this capture
+REJECTED  user_agent agent                   would also match 1 trusted request(s) in this capture
 ```
 
-The last line is the point. The forged signature used the same user-agent as the real signed agent. A naive "block this UA" rule would have locked out a legitimate partner; ORDER rejects it before a human sees it as a candidate. Learned rules top out at `LIKELY`, are never auto-approved, and a rejected proposal can't be compiled in even if someone flips `approved`.
+Three kinds of rule are learned: an exact path, a user-agent, and a **path family** (the
+directory a probed path lives in). The rejections are the point. The forged signature used
+the same user-agent as the real signed agent, so a naive "block this UA" rule would have
+locked out a legitimate partner. Generalising `/api/v1/products` to `/api/v1/` would have
+diverted every API user. ORDER rejects both before a human sees them as candidates.
+
+Learned rules top out at `LIKELY` and are never auto-approved, and a rejected proposal can't
+be compiled in even if someone flips `approved`. A path family is a guess beyond the
+evidence, so it is always `GUESSING` and can only divert to the decoy, never block. It needs
+two or more hostile clients, at least two path segments, and no benign traffic anywhere
+under it.
 
 ## Authorized security testing
 
@@ -203,10 +213,11 @@ never saw through a running gateway in front of a real app:
 | Rules | Malicious caught | Benign wrongly stopped |
 |---|---|---|
 | Built-in only | 7/12 | 2/12 |
-| Built-in + learned | 8/12 | 2/12 |
+| + learned exact paths | 8/12 | 2/12 |
+| + learned path families | 9/12 | 2/12 |
 
-The learned rule caught a disguised scanner that the built-in rules missed, and added no
-false positives. The misses and false positives are published too, with what each one
+The learned rules caught a disguised scanner and a related probe that the built-in rules
+missed, and added no false positives. The misses and false positives are published too, with what each one
 means, in [benchmarks/](benchmarks/README.md). It's a small, hand-labelled set: it shows
 behaviour, not statistical accuracy.
 
@@ -288,7 +299,7 @@ Full detail in [ARCHITECTURE.md](ARCHITECTURE.md). To build on ORDER, start with
 
 ## Status
 
-`v0.4` plus authorized security testing: Express and Fastify adapters, a reverse proxy, pluggable state with Redis, metrics, safe client identification, npm-ready packages. 120 tests; library, tests and examples are all strictly type-checked. Interfaces may still change before `1.0`. See the [changelog](CHANGELOG.md).
+`v0.4` plus authorized security testing: Express and Fastify adapters, a reverse proxy, pluggable state with Redis, metrics, safe client identification, npm-ready packages. 124 tests; library, tests and examples are all strictly type-checked. Interfaces may still change before `1.0`. See the [changelog](CHANGELOG.md).
 
 ## Roadmap
 
@@ -299,11 +310,12 @@ Full detail in [ARCHITECTURE.md](ARCHITECTURE.md). To build on ORDER, start with
 - Express and Fastify adapters, reverse proxy, shared state, metrics
 - Authorized security testing: time-boxed, scoped pen-test engagements
 - Held-out evaluation: learned rules scored on unseen, labelled traffic through a running gateway
+- Path-family learned rules that divert, never block
 
 **Planned** (contributions welcome)
 
 - Verify signed directory responses (draft Appendix B)
-- Path-family learned rules (e.g. a whole probe family, not one URL), validated on held-out data
+- An independent held-out set written by someone other than the rule designer
 - Close the gaps the evaluation found, measured on a new held-out set
 - Plug any private pack and corpus into the evaluation harness
 - Edge runtimes (Cloudflare Workers, Deno). The core is portable; key discovery needs a `fetch` transport

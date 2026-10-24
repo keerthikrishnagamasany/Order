@@ -11,6 +11,7 @@ export {
   synthesizeRules,
   compileRules,
   uaToken,
+  pathFamily,
   type CapturedRequest,
   type RuleProposal,
   type ProposalKind,
